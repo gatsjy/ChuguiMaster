@@ -45,24 +45,24 @@ SAMPLE_RAW_TEXT = """1 홍길동 200000 친척모임
 27 권집사 100000 OO교회"""
 
 class ToastNotification(QFrame):
-    """세련된 페이드 인/아웃 토스트 애니메이션 알림 컴포넌트"""
+    """다크 테마 토스트 알림 컴포넌트"""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.SubWindow)
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.setStyleSheet("""
             QFrame {
-                background-color: rgba(15, 23, 42, 0.92);
-                color: #ffffff;
+                background-color: #334155;
+                color: #f8fafc;
                 border-radius: 20px;
                 padding: 10px 22px;
-                border: 1px solid rgba(255, 255, 255, 0.15);
+                border: 1px solid #64748b;
             }
             QLabel {
-                color: #ffffff;
-                font-family: 'Pretendard', 'Segoe UI', sans-serif;
+                color: #f8fafc;
+                font-family: 'Pretendard', 'Segoe UI', '맑은 고딕', sans-serif;
                 font-size: 13px;
-                font-weight: 600;
+                font-weight: 700;
             }
         """)
 
@@ -71,12 +71,11 @@ class ToastNotification(QFrame):
         self.lbl_text = QLabel("")
         layout.addWidget(self.lbl_text)
 
-        # 불투명도 효과
         self.opacity_effect = QGraphicsOpacityEffect(self)
         self.setGraphicsEffect(self.opacity_effect)
         
         self.anim = QPropertyAnimation(self.opacity_effect, b"opacity")
-        self.anim.setDuration(350)
+        self.anim.setDuration(300)
         self.anim.setEasingCurve(QEasingCurve.OutCubic)
 
         self.timer = QTimer(self)
@@ -89,7 +88,6 @@ class ToastNotification(QFrame):
         self.lbl_text.setText(message)
         self.adjustSize()
 
-        # 부모 창 중앙 하단에 위치 조정
         if self.parent():
             p_rect = self.parent().rect()
             x = (p_rect.width() - self.width()) // 2
@@ -113,12 +111,28 @@ class ToastNotification(QFrame):
 
 
 class TemplateSettingsDialog(QDialog):
-    """감사 인사말 템플릿 맞춤 설정 팝업"""
+    """다크 스타일 감사 인사말 세팅 팝업"""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("⚙️ 감사 인사말 템플릿 맞춤 세팅")
-        self.resize(650, 520)
-        self.setStyleSheet("background-color: #ffffff; font-family: 'Pretendard', 'Segoe UI', sans-serif;")
+        self.resize(680, 560)
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #0f172a;
+                font-family: 'Pretendard', 'Segoe UI', '맑은 고딕', sans-serif;
+            }
+            QLabel {
+                color: #f8fafc;
+            }
+            QTextEdit {
+                background-color: #1e293b;
+                color: #f8fafc;
+                border: 1px solid #475569;
+                border-radius: 8px;
+                font-size: 13px;
+                padding: 8px;
+            }
+        """)
 
         self.current_templates = json.loads(json.dumps(MessageGenerator.get_templates()))
         self.init_ui()
@@ -128,19 +142,19 @@ class TemplateSettingsDialog(QDialog):
         layout.setContentsMargins(20, 20, 20, 20)
 
         header_title = QLabel("⚙️ 관계별 & 참석 상황별 인사말 세팅")
-        header_title.setStyleSheet("font-size: 16px; font-weight: 700; color: #1e293b;")
+        header_title.setStyleSheet("font-size: 16px; font-weight: 700; color: #818cf8;")
         
         header_desc = QLabel("원하시는 문구로 자유롭게 수정하세요. `{name}`은 하객 이름으로 자동 치환됩니다.")
-        header_desc.setStyleSheet("font-size: 12px; color: #64748b; margin-bottom: 8px;")
+        header_desc.setStyleSheet("font-size: 12px; color: #94a3b8; margin-bottom: 8px;")
 
         layout.addWidget(header_title)
         layout.addWidget(header_desc)
 
         self.tab_widget = QTabWidget()
         self.tab_widget.setStyleSheet("""
-            QTabWidget::pane { border: 1px solid #e2e8f0; border-radius: 8px; }
-            QTabBar::tab { background: #f1f5f9; padding: 8px 16px; font-weight: 600; color: #475569; }
-            QTabBar::tab:selected { background: #ffffff; color: #4f46e5; border-bottom: 2px solid #4f46e5; }
+            QTabWidget::pane { border: 1px solid #334155; border-radius: 8px; background: #0f172a; }
+            QTabBar::tab { background: #1e293b; padding: 10px 18px; font-weight: 600; color: #94a3b8; border-top-left-radius: 6px; border-top-right-radius: 6px; }
+            QTabBar::tab:selected { background: #334155; color: #818cf8; border-bottom: 2px solid #818cf8; }
         """)
 
         self.editors = {}
@@ -150,13 +164,13 @@ class TemplateSettingsDialog(QDialog):
             cat_layout = QVBoxLayout(cat_tab)
             cat_layout.setContentsMargins(14, 14, 14, 14)
 
-            cat_layout.addWidget(QLabel(f"<b>[{category}] 직접 참석시 인사말:</b>"))
+            cat_layout.addWidget(QLabel(f"<b style='color:#cbd5e1;'>[{category}] 직접 참석시 인사말:</b>"))
             txt_attend = QTextEdit()
             txt_attend.setPlainText(self.current_templates.get(category, {}).get('참석', ''))
             cat_layout.addWidget(txt_attend)
 
             cat_layout.addSpacing(6)
-            cat_layout.addWidget(QLabel(f"<b>[{category}] 불참(송금)시 인사말:</b>"))
+            cat_layout.addWidget(QLabel(f"<b style='color:#cbd5e1;'>[{category}] 불참(송금)시 인사말:</b>"))
             txt_absent = QTextEdit()
             txt_absent.setPlainText(self.current_templates.get(category, {}).get('불참(송금)', ''))
             cat_layout.addWidget(txt_absent)
@@ -171,15 +185,15 @@ class TemplateSettingsDialog(QDialog):
         btn_layout = QHBoxLayout()
         
         btn_reset = QPushButton("🔄 기본값 복원")
-        btn_reset.setStyleSheet("background-color: #f1f5f9; color: #ef4444; font-weight: bold; border-radius: 6px; padding: 8px 14px; border: 1px solid #fca5a5;")
+        btn_reset.setStyleSheet("background-color: #1e293b; color: #f87171; font-weight: bold; border-radius: 6px; padding: 10px 16px; border: 1px solid #7f1d1d;")
         btn_reset.clicked.connect(self.reset_defaults)
 
         btn_save = QPushButton("💾 템플릿 저장하기")
-        btn_save.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4f46e5, stop:1 #6366f1); color: white; font-weight: bold; border-radius: 6px; padding: 8px 16px;")
+        btn_save.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4f46e5, stop:1 #6366f1); color: white; font-weight: bold; border-radius: 6px; padding: 10px 18px;")
         btn_save.clicked.connect(self.save_settings)
 
         btn_cancel = QPushButton("취소")
-        btn_cancel.setStyleSheet("background-color: #e2e8f0; color: #475569; border-radius: 6px; padding: 8px 14px;")
+        btn_cancel.setStyleSheet("background-color: #334155; color: #cbd5e1; border-radius: 6px; padding: 10px 16px;")
         btn_cancel.clicked.connect(self.reject)
 
         btn_layout.addWidget(btn_reset)
@@ -208,57 +222,65 @@ class TemplateSettingsDialog(QDialog):
 
 
 class HelpDialog(QDialog):
+    """다크 스타일 가이드 팝업"""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("❓ 텍스트 입력 및 취합 가이드")
-        self.resize(520, 450)
-        self.setStyleSheet("background-color: #ffffff; font-family: 'Pretendard', 'Segoe UI', sans-serif;")
+        self.resize(540, 460)
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #0f172a;
+                font-family: 'Pretendard', 'Segoe UI', '맑은 고딕', sans-serif;
+            }
+            QLabel {
+                color: #f8fafc;
+            }
+        """)
         
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setContentsMargins(22, 22, 22, 22)
         
         title = QLabel("💡 축의금 자유 텍스트 작성 팁")
-        title.setStyleSheet("font-size: 16px; font-weight: 700; color: #1e293b;")
+        title.setStyleSheet("font-size: 16px; font-weight: 700; color: #818cf8;")
         layout.addWidget(title)
         
         guide_txt = QLabel("""
 ChuguiMaster는 카톡이나 메모장에 작성한 자유 서식 텍스트를 
-AI 규칙 기반 파서가 1초 만에 자동 분석합니다.
+규칙 기반 스마트 파서가 1초 만에 자동 분석합니다.
 
-📌 **작성 지원 양식 예시:**
-• **기본형**: `이름 금액 소속` (예: 홍길동 10만원 친척)
-• **부부/가족**: `이름1,이름2 금액` (예: 김가족,김친지 300,000원 C이모)
-• **식권 지정**: `이름 금액 식권수` (예: 최동료 10만 식권2)
-• **불참/송금**: `이름 금액 불참` (예: 박지성 5만원 불참)
+📌 <b>작성 지원 양식 예시:</b>
+• <b>기본형</b>: <code style='color:#a5b4fc;'>이름 금액 소속</code> (예: 홍길동 10만원 친척)
+• <b>부부/가족</b>: <code style='color:#a5b4fc;'>이름1,이름2 금액</code> (예: 김가족,김친지 300,000원 C이모)
+• <b>식권 지정</b>: <code style='color:#a5b4fc;'>이름 금액 식권수</code> (예: 최동료 10만 식권2)
+• <b>불참/송금</b>: <code style='color:#a5b4fc;'>이름 금액 불참</code> (예: 박지성 5만원 불참)
 
-📌 **인사말 세팅:**
-• 상단 우측 `⚙️ 인사말 세팅` 버튼을 통해 나만의 감사 문구를 자유롭게 수정할 수 있습니다.
+📌 <b>금액 파싱 형식:</b>
+• <code style='color:#a5b4fc;'>10만원</code>, <code style='color:#a5b4fc;'>10만</code>, <code style='color:#a5b4fc;'>100,000</code>, <code style='color:#a5b4fc;'>100000</code> 모두 자동 지원됩니다.
+
+📌 <b>인사말 세팅:</b>
+• 상단 우측 <code style='color:#818cf8;'>⚙️ 감사 인사말 템플릿 세팅</code> 버튼을 통해 나만의 감사 문구를 자유롭게 수정할 수 있습니다.
         """)
-        guide_txt.setStyleSheet("font-size: 13px; color: #334155; line-height: 1.6;")
+        guide_txt.setStyleSheet("font-size: 13px; color: #cbd5e1; line-height: 1.6;")
         guide_txt.setWordWrap(True)
         layout.addWidget(guide_txt)
         
         btn_close = QPushButton("확인했습니다")
-        btn_close.setStyleSheet("background-color: #4f46e5; color: white; font-weight: bold; border-radius: 6px; padding: 8px;")
+        btn_close.setStyleSheet("background-color: #6366f1; color: white; font-weight: bold; border-radius: 6px; padding: 10px;")
         btn_close.clicked.connect(self.accept)
         layout.addWidget(btn_close)
 
 
 class MetricCard(QFrame):
+    """다크 모드 대시보드 KPI 카드 컴포넌트"""
     def __init__(self, title: str, initial_value: str, icon_str: str, bg_color: str, text_color: str):
         super().__init__()
         self.setStyleSheet(f"""
             QFrame {{
                 background-color: {bg_color};
                 border-radius: 12px;
-                border: 1px solid rgba(226, 232, 240, 0.8);
+                border: 1px solid #334155;
             }}
         """)
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(15)
-        shadow.setColor(QColor(0, 0, 0, 15))
-        shadow.setOffset(0, 4)
-        self.setGraphicsEffect(shadow)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 16, 14)
@@ -268,7 +290,7 @@ class MetricCard(QFrame):
         self.lbl_icon.setStyleSheet("font-size: 20px;")
         
         self.lbl_title = QLabel(title)
-        self.lbl_title.setStyleSheet("font-size: 13px; font-weight: 600; color: #64748b;")
+        self.lbl_title.setStyleSheet("font-size: 13px; font-weight: 600; color: #94a3b8;")
 
         top_layout.addWidget(self.lbl_icon)
         top_layout.addWidget(self.lbl_title)
@@ -288,101 +310,140 @@ class MetricCard(QFrame):
 class ChuguiMasterUI(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("💍 ChuguiMaster Pro - 스마트 축의금 자동 취합 & 감사 메시지 생성기")
+        self.setWindowTitle("💍 ChuguiMaster Pro - 스마트 축의금 자동 취합 & 감사 메시지 생성기 (Dark Mode)")
         self.resize(1360, 900)
         self.guest_data = []
 
+        # 🌟 프리미엄 다크 모드 (Sleek Dark Theme)
         self.setStyleSheet("""
-            QMainWindow { background-color: #f8fafc; }
-            QLabel { font-family: 'Pretendard', 'Segoe UI', '맑은 고딕', sans-serif; }
+            QMainWindow {
+                background-color: #0f172a;
+            }
+            QLabel {
+                font-family: 'Pretendard', 'Segoe UI', '맑은 고딕', sans-serif;
+                color: #f8fafc;
+            }
             QTextEdit {
-                background-color: #ffffff;
-                border: 1px solid #cbd5e1;
+                background-color: #1e293b;
+                border: 1px solid #334155;
                 border-radius: 10px;
                 padding: 12px;
                 font-size: 13px;
-                color: #1e293b;
+                color: #f8fafc;
                 line-height: 1.5;
             }
-            QTextEdit:focus { border: 2px solid #6366f1; }
+            QTextEdit:focus {
+                border: 2px solid #818cf8;
+            }
             QSpinBox {
-                background-color: #ffffff;
-                border: 1px solid #cbd5e1;
+                background-color: #1e293b;
+                border: 1px solid #334155;
                 border-radius: 6px;
-                padding: 4px 8px;
+                padding: 6px 10px;
                 font-size: 13px;
                 font-weight: 600;
-                color: #1e293b;
+                color: #f8fafc;
+                min-height: 28px;
             }
             QPushButton {
-                font-family: 'Pretendard', 'Segoe UI', '맑은 고딕';
+                font-family: 'Pretendard', 'Segoe UI', '맑은 고딕', sans-serif;
                 font-size: 13px;
                 font-weight: 700;
                 border-radius: 8px;
-                padding: 10px 14px;
+                padding: 10px 16px;
+                min-height: 38px;
                 border: none;
+                color: #ffffff;
             }
             QPushButton#btnParse {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4f46e5, stop:1 #6366f1);
-                color: white;
+                color: #ffffff;
                 font-size: 14px;
             }
-            QPushButton#btnParse:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4338ca, stop:1 #4f46e5); }
+            QPushButton#btnParse:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4338ca, stop:1 #4f46e5);
+            }
             QPushButton#btnSample {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #8b5cf6, stop:1 #a855f7);
-                color: white;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #7c3aed, stop:1 #8b5cf6);
+                color: #ffffff;
             }
-            QPushButton#btnSample:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #7c3aed, stop:1 #9333ea); }
+            QPushButton#btnSample:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #6d28d9, stop:1 #7c3aed);
+            }
             QPushButton#btnSettings {
-                background-color: #ffffff;
-                color: #4338ca;
-                border: 1.5px solid #c7d2fe;
-                padding: 6px 12px;
+                background-color: #1e293b;
+                color: #a5b4fc;
+                border: 1px solid #4338ca;
+                padding: 6px 14px;
                 font-size: 12px;
+                min-height: 28px;
             }
-            QPushButton#btnSettings:hover { background-color: #e0e7ff; }
+            QPushButton#btnSettings:hover {
+                background-color: #312e81;
+                color: #ffffff;
+            }
             QPushButton#btnHelp {
-                background-color: #f1f5f9;
-                color: #475569;
-                border: 1px solid #cbd5e1;
-                padding: 4px 8px;
+                background-color: #1e293b;
+                color: #cbd5e1;
+                border: 1px solid #475569;
+                padding: 4px 10px;
                 font-size: 12px;
+                min-height: 26px;
             }
-            QPushButton#btnHelp:hover { background-color: #e2e8f0; }
-            QPushButton#btnExcelImport { background-color: #334155; color: white; }
-            QPushButton#btnExcelImport:hover { background-color: #1e293b; }
+            QPushButton#btnHelp:hover {
+                background-color: #334155;
+            }
+            QPushButton#btnExcelImport {
+                background-color: #334155;
+                color: #f8fafc;
+                border: 1px solid #475569;
+            }
+            QPushButton#btnExcelImport:hover {
+                background-color: #475569;
+            }
             QPushButton#btnExport {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #059669, stop:1 #10b981);
-                color: white;
+                color: #ffffff;
                 font-size: 15px;
             }
-            QPushButton#btnExport:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #047857, stop:1 #059669); }
+            QPushButton#btnExport:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #047857, stop:1 #059669);
+            }
             QPushButton#btnCopy {
-                background-color: #ecfdf5;
-                color: #047857;
-                border: 1px solid #a7f3d0;
+                background-color: #064e3b;
+                color: #6ee7b7;
+                border: 1px solid #047857;
                 border-radius: 6px;
-                padding: 5px 10px;
+                padding: 4px 10px;
                 font-size: 12px;
                 font-weight: 700;
+                min-height: 24px;
             }
-            QPushButton#btnCopy:hover { background-color: #10b981; color: white; border: none; }
+            QPushButton#btnCopy:hover {
+                background-color: #10b981;
+                color: #ffffff;
+                border: none;
+            }
             QTableWidget {
-                background-color: #ffffff;
-                border: 1px solid #e2e8f0;
+                background-color: #0f172a;
+                border: 1px solid #334155;
                 border-radius: 10px;
-                gridline-color: #f1f5f9;
-                selection-background-color: #e0e7ff;
-                selection-color: #1e1b4b;
+                gridline-color: #1e293b;
+                selection-background-color: #312e81;
+                selection-color: #ffffff;
                 font-size: 13px;
+                color: #f8fafc;
             }
             QHeaderView::section {
-                background-color: #f8fafc;
+                background-color: #1e293b;
                 font-weight: 700;
-                color: #475569;
+                color: #cbd5e1;
                 padding: 10px;
                 border: none;
-                border-bottom: 2px solid #e2e8f0;
+                border-bottom: 2px solid #334155;
+            }
+            QCheckBox {
+                color: #cbd5e1;
             }
         """)
 
@@ -396,20 +457,16 @@ class ChuguiMasterUI(QMainWindow):
         main_layout.setSpacing(16)
         main_layout.setContentsMargins(20, 20, 20, 20)
 
-        # 1. 상단 KPI 대시보드
+        # 1. 상단 KPI 대시보드 다크 카드
         kpi_layout = QHBoxLayout()
         kpi_layout.setSpacing(14)
 
-        self.card_total = MetricCard("총 수령 축의금", "0 원", "💳", "#ffffff", "#4f46e5")
-        self.card_guests = MetricCard("총 하객 수", "0 명", "👥", "#ffffff", "#0284c7")
+        self.card_total = MetricCard("총 수령 축의금", "0 원", "💳", "#1e293b", "#818cf8")
+        self.card_guests = MetricCard("총 하객 수", "0 명", "👥", "#1e293b", "#38bdf8")
         
+        # 다크 식대 설정 카드
         meal_card = QFrame()
-        meal_card.setStyleSheet("background-color: #ffffff; border-radius: 12px; border: 1px solid rgba(226, 232, 240, 0.8);")
-        shadow = QGraphicsDropShadowEffect(meal_card)
-        shadow.setBlurRadius(15)
-        shadow.setColor(QColor(0, 0, 0, 15))
-        shadow.setOffset(0, 4)
-        meal_card.setGraphicsEffect(shadow)
+        meal_card.setStyleSheet("background-color: #1e293b; border-radius: 12px; border: 1px solid #334155;")
 
         meal_layout = QVBoxLayout(meal_card)
         meal_layout.setContentsMargins(16, 12, 16, 12)
@@ -418,13 +475,16 @@ class ChuguiMasterUI(QMainWindow):
         lbl_meal_icon = QLabel("🍽️")
         lbl_meal_icon.setStyleSheet("font-size: 18px;")
         lbl_meal_title = QLabel("식대 단가 설정 (대인 / 소인)")
-        lbl_meal_title.setStyleSheet("font-size: 13px; font-weight: 600; color: #64748b;")
+        lbl_meal_title.setStyleSheet("font-size: 13px; font-weight: 600; color: #94a3b8;")
         meal_title_layout.addWidget(lbl_meal_icon)
         meal_title_layout.addWidget(lbl_meal_title)
         meal_title_layout.addStretch()
 
         inputs_layout = QHBoxLayout()
-        inputs_layout.addWidget(QLabel("대인:"))
+        lbl_ad = QLabel("대인:")
+        lbl_ad.setStyleSheet("color: #cbd5e1;")
+        inputs_layout.addWidget(lbl_ad)
+        
         self.spin_adult = QSpinBox()
         self.spin_adult.setRange(0, 500000)
         self.spin_adult.setValue(42000)
@@ -433,7 +493,10 @@ class ChuguiMasterUI(QMainWindow):
         self.spin_adult.valueChanged.connect(self.update_summary)
         inputs_layout.addWidget(self.spin_adult)
 
-        inputs_layout.addWidget(QLabel("소인:"))
+        lbl_ch = QLabel("소인:")
+        lbl_ch.setStyleSheet("color: #cbd5e1;")
+        inputs_layout.addWidget(lbl_ch)
+        
         self.spin_child = QSpinBox()
         self.spin_child.setRange(0, 500000)
         self.spin_child.setValue(25000)
@@ -446,7 +509,7 @@ class ChuguiMasterUI(QMainWindow):
         meal_layout.addSpacing(2)
         meal_layout.addLayout(inputs_layout)
 
-        self.card_net = MetricCard("최종 순 정산금 (수익)", "0 원", "💰", "#ecfdf5", "#059669")
+        self.card_net = MetricCard("최종 순 정산금 (수익)", "0 원", "💰", "#064e3b", "#34d399")
 
         kpi_layout.addWidget(self.card_total, 1)
         kpi_layout.addWidget(self.card_guests, 1)
@@ -458,14 +521,15 @@ class ChuguiMasterUI(QMainWindow):
         # 2. 메인 스플리터
         splitter = QSplitter(Qt.Horizontal)
 
+        # 좌측 패널
         left_card = QFrame()
-        left_card.setStyleSheet("background-color: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0;")
+        left_card.setStyleSheet("background-color: #1e293b; border-radius: 12px; border: 1px solid #334155;")
         left_layout = QVBoxLayout(left_card)
         left_layout.setContentsMargins(18, 18, 18, 18)
 
         left_header_layout = QHBoxLayout()
         lbl_input_header = QLabel("📋 텍스트 입력 및 취합 테스트")
-        lbl_input_header.setStyleSheet("font-size: 15px; font-weight: 700; color: #1e293b;")
+        lbl_input_header.setStyleSheet("font-size: 15px; font-weight: 700; color: #f8fafc;")
         
         btn_help = QPushButton("❓ 작성 가이드")
         btn_help.setObjectName("btnHelp")
@@ -477,12 +541,12 @@ class ChuguiMasterUI(QMainWindow):
         left_header_layout.addWidget(btn_help)
 
         guide_box = QFrame()
-        guide_box.setStyleSheet("background-color: #f1f5f9; border-radius: 8px; border: 1px dashed #cbd5e1;")
+        guide_box.setStyleSheet("background-color: #0f172a; border-radius: 8px; border: 1px dashed #475569;")
         gb_layout = QVBoxLayout(guide_box)
-        gb_layout.setContentsMargins(10, 8, 10, 8)
+        gb_layout.setContentsMargins(12, 10, 12, 10)
         
-        lbl_guide = QLabel("<b>[입력 지원 팁]</b> 카톡/메모장의 자유 텍스트를 그대로 복붙하세요.<br>• <code>홍길동 10만원 친척</code> | <code>김가족,김친지 30만 C이모</code><br>• 아래 🎯 버튼을 누르시면 <b>27건의 가명화 데이터</b>로 체험 가능합니다.")
-        lbl_guide.setStyleSheet("font-size: 11px; color: #475569; line-height: 1.4;")
+        lbl_guide = QLabel("<b style='color:#818cf8;'>[입력 지원 팁]</b> 카톡/메모장의 자유 텍스트를 그대로 복붙하세요.<br>• <code style='color:#cbd5e1;'>홍길동 10만원 친척</code> | <code style='color:#cbd5e1;'>김가족,김친지 30만 C이모</code><br>• 아래 🎯 버튼을 누르시면 <b>27건의 가명화 데이터</b>로 체험 가능합니다.")
+        lbl_guide.setStyleSheet("font-size: 12px; color: #94a3b8; line-height: 1.4;")
         gb_layout.addWidget(lbl_guide)
 
         self.txt_input = QTextEdit()
@@ -514,15 +578,15 @@ class ChuguiMasterUI(QMainWindow):
 
         splitter.addWidget(left_card)
 
-        # 우측 데이터 표
+        # 우측 데이터 표 패널
         right_card = QFrame()
-        right_card.setStyleSheet("background-color: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0;")
+        right_card.setStyleSheet("background-color: #1e293b; border-radius: 12px; border: 1px solid #334155;")
         right_layout = QVBoxLayout(right_card)
         right_layout.setContentsMargins(18, 18, 18, 18)
 
         right_header_layout = QHBoxLayout()
         lbl_table_header = QLabel("📜 스마트 취합 결과 & 1초 감사 인사 복사")
-        lbl_table_header.setStyleSheet("font-size: 15px; font-weight: 700; color: #1e293b;")
+        lbl_table_header.setStyleSheet("font-size: 15px; font-weight: 700; color: #f8fafc;")
 
         btn_settings = QPushButton("⚙️ 감사 인사말 템플릿 세팅")
         btn_settings.setObjectName("btnSettings")
@@ -607,20 +671,25 @@ class ChuguiMasterUI(QMainWindow):
 
             item_name = QTableWidgetItem(guest['name'])
             item_name.setFont(QFont("Pretendard", 10, QFont.Bold))
+            item_name.setForeground(QColor("#f8fafc"))
             self.table.setItem(row, 1, item_name)
 
             amt_str = f"{guest['amount']:,} 원"
             item_amt = QTableWidgetItem(amt_str)
             item_amt.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            item_amt.setForeground(QColor("#1e1b4b"))
+            item_amt.setForeground(QColor("#818cf8"))
             item_amt.setFont(QFont("Pretendard", 10, QFont.Bold))
             self.table.setItem(row, 2, item_amt)
 
             belong_rel = f"{guest.get('belong', '')} ({guest['relation']})" if guest.get('belong') else guest['relation']
-            self.table.setItem(row, 3, QTableWidgetItem(belong_rel))
+            item_rel = QTableWidgetItem(belong_rel)
+            item_rel.setForeground(QColor("#cbd5e1"))
+            self.table.setItem(row, 3, item_rel)
 
             note_att = f"{guest['attended']} {guest.get('note', '')}".strip()
-            self.table.setItem(row, 4, QTableWidgetItem(note_att))
+            item_att = QTableWidgetItem(note_att)
+            item_att.setForeground(QColor("#cbd5e1"))
+            self.table.setItem(row, 4, item_att)
 
             msg = MessageGenerator.generate(guest)
             btn_copy = QPushButton("📋 인사말 복사")
@@ -640,16 +709,16 @@ class ChuguiMasterUI(QMainWindow):
             chk_layout.setContentsMargins(0, 0, 0, 0)
             self.table.setCellWidget(row, 6, chk_container)
 
-            self.table.setItem(row, 7, QTableWidgetItem(guest.get('raw', '')))
+            item_raw = QTableWidgetItem(guest.get('raw', ''))
+            item_raw.setForeground(QColor("#94a3b8"))
+            self.table.setItem(row, 7, item_raw)
 
     def copy_to_clipboard(self, msg: str, guest: dict):
-        """팝업창 없이 애니메이션 플로팅 토스트 알림으로 연동"""
         clipboard = QApplication.clipboard()
         clipboard.setText(msg)
         guest['sent_thanks'] = True
         self.render_table()
         
-        # 🌟 모달 팝업 대신 부드럽게 떴다가 사라지는 페이드 애니메이션 토스트 알림!
         self.toast.show_message(f"📋 [{guest['name']}] 하객 인사말이 복사되었습니다! (Ctrl+V로 발송하세요)")
 
     def toggle_sent(self, state, guest):
