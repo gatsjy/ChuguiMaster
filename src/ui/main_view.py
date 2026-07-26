@@ -18,6 +18,16 @@ from message_generator import MessageGenerator
 
 CONFIG_FILE = "config_settings.json"
 
+CATEGORIES = ['친척/가족', '직장/기관', '종교/모임', '학교/동창', '지인/기타']
+
+BADGE_STYLES = {
+    '친척/가족': "QComboBox { background-color: #3b0764; color: #c084fc; border: 1px solid #7e22ce; border-radius: 8px; font-weight: bold; font-size: 11px; padding: 2px 6px; } QComboBox::drop-down { border: none; } QComboBox QAbstractItemView { background-color: #1e293b; color: #f8fafc; selection-background-color: #7e22ce; }",
+    '직장/기관': "QComboBox { background-color: #1e1b4b; color: #818cf8; border: 1px solid #4338ca; border-radius: 8px; font-weight: bold; font-size: 11px; padding: 2px 6px; } QComboBox::drop-down { border: none; } QComboBox QAbstractItemView { background-color: #1e293b; color: #f8fafc; selection-background-color: #4338ca; }",
+    '종교/모임': "QComboBox { background-color: #064e3b; color: #34d399; border: 1px solid #047857; border-radius: 8px; font-weight: bold; font-size: 11px; padding: 2px 6px; } QComboBox::drop-down { border: none; } QComboBox QAbstractItemView { background-color: #1e293b; color: #f8fafc; selection-background-color: #047857; }",
+    '학교/동창': "QComboBox { background-color: #451a03; color: #fbbf24; border: 1px solid #b45309; border-radius: 8px; font-weight: bold; font-size: 11px; padding: 2px 6px; } QComboBox::drop-down { border: none; } QComboBox QAbstractItemView { background-color: #1e293b; color: #f8fafc; selection-background-color: #b45309; }",
+    '지인/기타': "QComboBox { background-color: #334155; color: #cbd5e1; border: 1px solid #475569; border-radius: 8px; font-weight: bold; font-size: 11px; padding: 2px 6px; } QComboBox::drop-down { border: none; } QComboBox QAbstractItemView { background-color: #1e293b; color: #f8fafc; selection-background-color: #475569; }"
+}
+
 SAMPLE_RAW_TEXT = """1 홍길동 200000 친척모임
 2 김철수 100000 친척모임
 3 이영희 300000 친척모임
@@ -197,7 +207,7 @@ class TemplateSettingsDialog(QDialog):
 
         self.editors = {}
 
-        for category in ['친척/가족', '직장/기관', '종교/모임', '학교/동창', '지인/기타']:
+        for category in CATEGORIES:
             cat_tab = QWidget()
             cat_layout = QVBoxLayout(cat_tab)
             cat_layout.setContentsMargins(14, 14, 14, 14)
@@ -368,7 +378,6 @@ class ChuguiMasterUI(QMainWindow):
         self.toast = ToastNotification(self)
 
     def apply_theme(self):
-        """테마 적용 (테이블 Alternating Row Backgrounds 완벽 고정)"""
         if self.dark_mode:
             self.btn_theme.setText("☀️ 라이트 모드로 전환")
             self.setStyleSheet("""
@@ -397,7 +406,6 @@ class ChuguiMasterUI(QMainWindow):
                 QPushButton#btnCopy { background-color: #064e3b; color: #6ee7b7; border: 1px solid #047857; border-radius: 4px; padding: 3px 8px; font-size: 11px; font-weight: 700; min-height: 22px; }
                 QPushButton#btnCopy:hover { background-color: #10b981; color: #ffffff; }
                 
-                /* 🌟 테이블 스타일 및 짝수/홀수 행 다크 모드 고정 */
                 QTableWidget {
                     background-color: #0f172a;
                     alternate-background-color: #1e293b;
@@ -442,7 +450,6 @@ class ChuguiMasterUI(QMainWindow):
                 QPushButton#btnCopy { background-color: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; border-radius: 4px; padding: 3px 8px; font-size: 11px; font-weight: 700; min-height: 22px; }
                 QPushButton#btnCopy:hover { background-color: #10b981; color: white; }
                 
-                /* 라이트 모드 테이블 스타일 */
                 QTableWidget {
                     background-color: #ffffff;
                     alternate-background-color: #f8fafc;
@@ -636,11 +643,12 @@ class ChuguiMasterUI(QMainWindow):
         self.table = QTableWidget()
         self.table.setColumnCount(8)
         self.table.setHorizontalHeaderLabels([
-            "NO", "성명(하객)", "축의금액", "관계 태그", "참석/비고", "1초 감사 메시지 복사", "발송상태", "원문"
+            "NO", "성명(하객)", "축의금액", "관계 태그 (선택 변경 가능)", "참석/비고", "1초 감사 메시지 복사", "발송상태", "원문"
         ])
         self.table.setAlternatingRowColors(True)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
         self.table.verticalHeader().setVisible(False)
 
@@ -705,27 +713,34 @@ class ChuguiMasterUI(QMainWindow):
         if file_path:
             self.load_excel_file(file_path)
 
-    def create_category_badge(self, relation: str, belong: str) -> QLabel:
-        lbl = QLabel(f" {belong if belong else relation} ")
-        lbl.setAlignment(Qt.AlignCenter)
-        lbl.setContentsMargins(4, 2, 4, 2)
+    def create_category_combo(self, guest: dict) -> QComboBox:
+        """클릭하여 자유롭게 변경할 수 있는 스마트 드롭다운 관계 뱃지 콤보박스"""
+        combo = QComboBox()
+        combo.addItems(CATEGORIES)
         
-        badge_styles = {
-            '친척/가족': "background-color: #3b0764; color: #c084fc; border: 1px solid #7e22ce; border-radius: 10px; font-weight: bold; font-size: 11px;",
-            '직장/기관': "background-color: #1e1b4b; color: #818cf8; border: 1px solid #4338ca; border-radius: 10px; font-weight: bold; font-size: 11px;",
-            '종교/모임': "background-color: #064e3b; color: #34d399; border: 1px solid #047857; border-radius: 10px; font-weight: bold; font-size: 11px;",
-            '학교/동창': "background-color: #451a03; color: #fbbf24; border: 1px solid #b45309; border-radius: 10px; font-weight: bold; font-size: 11px;",
-            '지인/기타': "background-color: #334155; color: #cbd5e1; border: 1px solid #475569; border-radius: 10px; font-weight: bold; font-size: 11px;"
-        }
-        lbl.setStyleSheet(badge_styles.get(relation, badge_styles['지인/기타']))
-        return lbl
+        current_rel = guest.get('relation', '지인/기타')
+        if current_rel not in CATEGORIES:
+            current_rel = '지인/기타'
+            
+        combo.setCurrentText(current_rel)
+        combo.setStyleSheet(BADGE_STYLES.get(current_rel, BADGE_STYLES['지인/기타']))
+        combo.setCursor(Qt.PointingHandCursor)
+        
+        # 💡 선택 변경 시 하객 객체와 뱃지 색상, 인사말 실시간 자동 업데이트!
+        def on_category_changed(new_cat: str):
+            guest['relation'] = new_cat
+            combo.setStyleSheet(BADGE_STYLES.get(new_cat, BADGE_STYLES['지인/기타']))
+            self.render_table()
+            self.toast.show_message(f"🏷️ [{guest['name']}] 카테고리가 '{new_cat}'(으)로 변경되었습니다!")
+
+        combo.currentTextChanged.connect(on_category_changed)
+        return combo
 
     def render_table(self):
         self.table.setRowCount(0)
         search_query = self.search_input.text().strip().lower()
         filter_rel = self.filter_combo.currentText()
 
-        # 다크 모드 vs 라이트 모드 글자 색상 보장
         text_fg_color = QColor("#f8fafc") if self.dark_mode else QColor("#1e293b")
         amt_fg_color = QColor("#818cf8") if self.dark_mode else QColor("#4338ca")
         sub_fg_color = QColor("#cbd5e1") if self.dark_mode else QColor("#475569")
@@ -749,7 +764,7 @@ class ChuguiMasterUI(QMainWindow):
             item_id.setForeground(sub_fg_color)
             self.table.setItem(row, 0, item_id)
 
-            # 1. 성명 (밝은 흰색/다크 글자 고정)
+            # 1. 성명
             item_name = QTableWidgetItem(name)
             item_name.setFont(QFont("Pretendard", 10, QFont.Bold))
             item_name.setForeground(text_fg_color)
@@ -763,13 +778,14 @@ class ChuguiMasterUI(QMainWindow):
             item_amt.setForeground(amt_fg_color)
             self.table.setItem(row, 2, item_amt)
 
-            # 3. 관계 태그 뱃지
-            badge_widget = QWidget()
-            b_layout = QHBoxLayout(badge_widget)
-            b_layout.addWidget(self.create_category_badge(guest['relation'], guest.get('belong', '')))
-            b_layout.setAlignment(Qt.AlignCenter)
-            b_layout.setContentsMargins(2, 2, 2, 2)
-            self.table.setCellWidget(row, 3, badge_widget)
+            # 3. 🌟 드롭다운 변경 가능 관계 태그 콤보박스
+            combo_widget = self.create_category_combo(guest)
+            combo_container = QWidget()
+            c_layout = QHBoxLayout(combo_container)
+            c_layout.addWidget(combo_widget)
+            c_layout.setAlignment(Qt.AlignCenter)
+            c_layout.setContentsMargins(2, 2, 2, 2)
+            self.table.setCellWidget(row, 3, combo_container)
 
             # 4. 참석/비고
             note_att = f"{guest['attended']} {guest.get('note', '')}".strip()
