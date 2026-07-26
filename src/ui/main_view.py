@@ -4,8 +4,8 @@ import pandas as pd
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QTextEdit, QPushButton, QTableWidget, QTableWidgetItem, QLabel,
-    QFileDialog, QHeaderView, QMessageBox, QSpinBox, QGroupBox,
-    QCheckBox, QSplitter, QFrame
+    QFileDialog, QHeaderView, QMessageBox, QSpinBox, QFrame,
+    QCheckBox, QSplitter, QGraphicsDropShadowEffect
 )
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QFont, QColor, QClipboard
@@ -14,7 +14,6 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from smart_parser import SmartParser
 from message_generator import MessageGenerator
 
-# 🔒 완전히 개인정보 가명화(Anonymized) 처리된 샘플 테스트 데이터
 SAMPLE_RAW_TEXT = """1 홍길동 200000 친척모임
 2 김철수 100000 친척모임
 3 이영희 300000 친척모임
@@ -43,56 +42,153 @@ SAMPLE_RAW_TEXT = """1 홍길동 200000 친척모임
 26 진부부,신부부 100000
 27 권집사 100000 OO교회"""
 
+class MetricCard(QFrame):
+    """프리미엄 대시보드 KPI 카드 컴포넌트"""
+    def __init__(self, title: str, initial_value: str, icon_str: str, bg_color: str, text_color: str):
+        super().__init__()
+        self.setStyleSheet(f"""
+            QFrame {{
+                background-color: {bg_color};
+                border-radius: 12px;
+                border: 1px solid rgba(226, 232, 240, 0.8);
+            }}
+        """)
+        
+        # 그림자 효과
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(15)
+        shadow.setColor(QColor(0, 0, 0, 15))
+        shadow.setOffset(0, 4)
+        self.setGraphicsEffect(shadow)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 14, 16, 14)
+
+        top_layout = QHBoxLayout()
+        self.lbl_icon = QLabel(icon_str)
+        self.lbl_icon.setStyleSheet("font-size: 20px;")
+        
+        self.lbl_title = QLabel(title)
+        self.lbl_title.setStyleSheet("font-size: 13px; font-weight: 600; color: #64748b;")
+
+        top_layout.addWidget(self.lbl_icon)
+        top_layout.addWidget(self.lbl_title)
+        top_layout.addStretch()
+
+        self.lbl_val = QLabel(initial_value)
+        self.lbl_val.setStyleSheet(f"font-size: 22px; font-weight: 800; color: {text_color}; font-family: 'Pretendard', 'Segoe UI', '맑은 고딕';")
+
+        layout.addLayout(top_layout)
+        layout.addSpacing(4)
+        layout.addWidget(self.lbl_val)
+
+    def set_value(self, val_str: str):
+        self.lbl_val.setText(val_str)
+
+
 class ChuguiMasterUI(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("💍 ChuguiMaster - 스마트 축의금 자동 취합 & 감사 메시지 생성기")
-        self.resize(1300, 850)
+        self.setWindowTitle("💍 ChuguiMaster Pro - 스마트 축의금 자동 취합 & 감사 메시지 생성기")
+        self.resize(1340, 880)
         self.guest_data = []
-        
+
+        # 프리미엄 럭셔리 스타일시트
         self.setStyleSheet("""
-            QMainWindow { background-color: #f4f6f9; }
-            QGroupBox {
-                font-weight: bold;
-                border: 1.5px solid #dcdfe6;
-                border-radius: 8px;
-                margin-top: 8px;
-                padding-top: 10px;
-                background-color: #ffffff;
+            QMainWindow {
+                background-color: #f8fafc;
             }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px;
+            QLabel {
+                font-family: 'Pretendard', 'Segoe UI', '맑은 고딕', sans-serif;
+            }
+            QTextEdit {
+                background-color: #ffffff;
+                border: 1px solid #cbd5e1;
+                border-radius: 10px;
+                padding: 12px;
+                font-size: 13px;
+                color: #1e293b;
+                line-height: 1.5;
+            }
+            QTextEdit:focus {
+                border: 2px solid #6366f1;
+            }
+            QSpinBox {
+                background-color: #ffffff;
+                border: 1px solid #cbd5e1;
+                border-radius: 6px;
+                padding: 4px 8px;
+                font-size: 13px;
+                font-weight: 600;
                 color: #1e293b;
             }
             QPushButton {
-                background-color: #2563eb;
-                color: white;
-                font-weight: bold;
-                border-radius: 6px;
-                padding: 8px 14px;
+                font-family: 'Pretendard', 'Segoe UI', '맑은 고딕';
+                font-size: 14px;
+                font-weight: 700;
+                border-radius: 8px;
+                padding: 10px 16px;
                 border: none;
             }
-            QPushButton:hover { background-color: #1d4ed8; }
-            QPushButton#btnSample { background-color: #8b5cf6; }
-            QPushButton#btnSample:hover { background-color: #7c3aed; }
-            QPushButton#btnCopy { background-color: #10b981; padding: 4px 8px; font-size: 12px; }
-            QPushButton#btnCopy:hover { background-color: #059669; }
-            QPushButton#btnExcel { background-color: #059669; font-size: 14px; }
-            QPushButton#btnExcel:hover { background-color: #047857; }
+            QPushButton#btnParse {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4f46e5, stop:1 #6366f1);
+                color: white;
+            }
+            QPushButton#btnParse:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4338ca, stop:1 #4f46e5);
+            }
+            QPushButton#btnSample {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #8b5cf6, stop:1 #a855f7);
+                color: white;
+            }
+            QPushButton#btnSample:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #7c3aed, stop:1 #9333ea);
+            }
+            QPushButton#btnExcelImport {
+                background-color: #334155;
+                color: white;
+            }
+            QPushButton#btnExcelImport:hover {
+                background-color: #1e293b;
+            }
+            QPushButton#btnExport {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #059669, stop:1 #10b981);
+                color: white;
+                font-size: 15px;
+            }
+            QPushButton#btnExport:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #047857, stop:1 #059669);
+            }
+            QPushButton#btnCopy {
+                background-color: #ecfdf5;
+                color: #047857;
+                border: 1px solid #a7f3d0;
+                border-radius: 6px;
+                padding: 5px 10px;
+                font-size: 12px;
+                font-weight: 700;
+            }
+            QPushButton#btnCopy:hover {
+                background-color: #10b981;
+                color: white;
+                border: none;
+            }
             QTableWidget {
                 background-color: #ffffff;
-                gridline-color: #e2e8f0;
-                border: 1px solid #cbd5e1;
-                border-radius: 6px;
+                border: 1px solid #e2e8f0;
+                border-radius: 10px;
+                gridline-color: #f1f5f9;
+                selection-background-color: #e0e7ff;
+                selection-color: #1e1b4b;
+                font-size: 13px;
             }
             QHeaderView::section {
-                background-color: #f1f5f9;
-                font-weight: bold;
-                color: #334155;
-                padding: 6px;
+                background-color: #f8fafc;
+                font-weight: 700;
+                color: #475569;
+                padding: 10px;
                 border: none;
+                border-bottom: 2px solid #e2e8f0;
             }
         """)
 
@@ -102,115 +198,151 @@ class ChuguiMasterUI(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
+        main_layout.setSpacing(16)
+        main_layout.setContentsMargins(20, 20, 20, 20)
 
-        # 1. 상단 결산 요약 대시보드
-        summary_group = QGroupBox("📊 1초 실시간 축의금 & 대인/소인 식대 정산 대시보드")
-        summary_layout = QHBoxLayout(summary_group)
+        # 1. 상단 프리미엄 KPI 대시보드 카드 레이아웃
+        kpi_layout = QHBoxLayout()
+        kpi_layout.setSpacing(14)
 
-        self.lbl_total_amount = QLabel("총 축의금: 0 원")
-        self.lbl_total_amount.setStyleSheet("font-size: 16px; font-weight: bold; color: #1e3a8a;")
+        self.card_total = MetricCard("총 수령 축의금", "0 원", "💳", "#ffffff", "#4f46e5")
+        self.card_guests = MetricCard("총 하객 수", "0 명", "👥", "#ffffff", "#0284c7")
         
-        self.lbl_guest_count = QLabel("총 하객: 0 명")
-        self.lbl_guest_count.setStyleSheet("font-size: 15px; font-weight: bold; color: #334155;")
+        # 대인/소인 식대 설정 전용 스마트 카드
+        meal_card = QFrame()
+        meal_card.setStyleSheet("background-color: #ffffff; border-radius: 12px; border: 1px solid rgba(226, 232, 240, 0.8);")
+        shadow = QGraphicsDropShadowEffect(meal_card)
+        shadow.setBlurRadius(15)
+        shadow.setColor(QColor(0, 0, 0, 15))
+        shadow.setOffset(0, 4)
+        meal_card.setSet = meal_card.setGraphicsEffect(shadow)
 
-        adult_meal_layout = QHBoxLayout()
-        adult_meal_layout.addWidget(QLabel("대인 단가:"))
-        self.spin_adult_meal = QSpinBox()
-        self.spin_adult_meal.setRange(0, 500000)
-        self.spin_adult_meal.setSingleStep(1000)
-        self.spin_adult_meal.setValue(42000)
-        self.spin_adult_meal.setSuffix(" 원")
-        self.spin_adult_meal.valueChanged.connect(self.update_summary)
-        adult_meal_layout.addWidget(self.spin_adult_meal)
-
-        child_meal_layout = QHBoxLayout()
-        child_meal_layout.addWidget(QLabel("소인 단가:"))
-        self.spin_child_meal = QSpinBox()
-        self.spin_child_meal.setRange(0, 500000)
-        self.spin_child_meal.setSingleStep(1000)
-        self.spin_child_meal.setValue(25000)
-        self.spin_child_meal.setSuffix(" 원")
-        self.spin_child_meal.valueChanged.connect(self.update_summary)
-        child_meal_layout.addWidget(self.spin_child_meal)
-
-        self.lbl_net_profit = QLabel("순 정산금: 0 원")
-        self.lbl_net_profit.setStyleSheet("font-size: 16px; font-weight: bold; color: #059669;")
-
-        summary_layout.addWidget(self.lbl_total_amount)
-        summary_layout.addWidget(self.lbl_guest_count)
-        summary_layout.addLayout(adult_meal_layout)
-        summary_layout.addLayout(child_meal_layout)
-        summary_layout.addWidget(self.lbl_net_profit)
+        meal_layout = QVBoxLayout(meal_card)
+        meal_layout.setContentsMargins(16, 12, 16, 12)
         
-        main_layout.addWidget(summary_group)
+        meal_title_layout = QHBoxLayout()
+        lbl_meal_icon = QLabel("🍽️")
+        lbl_meal_icon.setStyleSheet("font-size: 18px;")
+        lbl_meal_title = QLabel("식대 단가 설정 (대인 / 소인)")
+        lbl_meal_title.setStyleSheet("font-size: 13px; font-weight: 600; color: #64748b;")
+        meal_title_layout.addWidget(lbl_meal_icon)
+        meal_title_layout.addWidget(lbl_meal_title)
+        meal_title_layout.addStretch()
 
-        # 2. 스플리터 레이아웃
+        inputs_layout = QHBoxLayout()
+        inputs_layout.addWidget(QLabel("대인:"))
+        self.spin_adult = QSpinBox()
+        self.spin_adult.setRange(0, 500000)
+        self.spin_adult.setValue(42000)
+        self.spin_adult.setSingleStep(1000)
+        self.spin_adult.setSuffix("원")
+        self.spin_adult.valueChanged.connect(self.update_summary)
+        inputs_layout.addWidget(self.spin_adult)
+
+        inputs_layout.addWidget(QLabel("소인:"))
+        self.spin_child = QSpinBox()
+        self.spin_child.setRange(0, 500000)
+        self.spin_child.setValue(25000)
+        self.spin_child.setSingleStep(1000)
+        self.spin_child.setSuffix("원")
+        self.spin_child.valueChanged.connect(self.update_summary)
+        inputs_layout.addWidget(self.spin_child)
+
+        meal_layout.addLayout(meal_title_layout)
+        meal_layout.addSpacing(2)
+        meal_layout.addLayout(inputs_layout)
+
+        self.card_net = MetricCard("최종 순 정산금 (수익)", "0 원", "💰", "#ecfdf5", "#059669")
+
+        kpi_layout.addWidget(self.card_total, 1)
+        kpi_layout.addWidget(self.card_guests, 1)
+        kpi_layout.addWidget(meal_card, 1)
+        kpi_layout.addWidget(self.card_net, 1)
+
+        main_layout.addLayout(kpi_layout)
+
+        # 2. 메인 콘텐츠 스플리터 (입력 박스 vs 데이터 표)
         splitter = QSplitter(Qt.Horizontal)
 
-        left_widget = QWidget()
-        left_layout = QVBoxLayout(left_widget)
+        # 좌측 텍스트 입력 패널
+        left_card = QFrame()
+        left_card.setStyleSheet("background-color: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0;")
+        left_layout = QVBoxLayout(left_card)
+        left_layout.setContentsMargins(16, 16, 16, 16)
+
+        lbl_input_header = QLabel("📋 축의금 리스트 텍스트 입력")
+        lbl_input_header.setStyleSheet("font-size: 15px; font-weight: 700; color: #1e293b;")
         
-        input_group = QGroupBox("📋 입력 및 가명화 샘플 테스트")
-        input_inner_layout = QVBoxLayout(input_group)
-        
-        guide_label = QLabel("텍스트를 붙여넣거나 엑셀 파일을 가져오세요.")
-        guide_label.setStyleSheet("color: #64748b; font-size: 12px;")
-        
+        lbl_input_desc = QLabel("카톡/메모장의 글을 그대로 붙여넣으세요. (예: 홍길동 10만원 친척)")
+        lbl_input_desc.setStyleSheet("font-size: 12px; color: #64748b; margin-bottom: 4px;")
+
         self.txt_input = QTextEdit()
-        self.txt_input.setPlaceholderText("예시 입력:\n1 홍길동 200,000 친척모임\n5 최동료 100,000 A보건지소\n11 김가족,김친지 300,000 C이모\n25 김성도(조성도) 50,000 OO교회")
-        
+        self.txt_input.setPlaceholderText("여기에 축의금 리스트를 붙여넣으세요...\n\n예시:\n홍길동 200,000 친척모임\n최동료 100,000 A보건지소\n김가족,김친지 300,000 C이모")
+
         btn_parse = QPushButton("⚡ 1초 자동 취합 및 파싱")
+        btn_parse.setObjectName("btnParse")
+        btn_parse.setCursor(Qt.PointingHandCursor)
         btn_parse.clicked.connect(self.handle_parse_text)
 
-        btn_sample = QPushButton("🎯 100% 가명화 샘플 데이터 불러오기")
+        btn_sample = QPushButton("🎯 100% 가명화 샘플 불러오기")
         btn_sample.setObjectName("btnSample")
+        btn_sample.setCursor(Qt.PointingHandCursor)
         btn_sample.clicked.connect(self.handle_load_sample)
-        
+
         btn_excel_import = QPushButton("📂 엑셀 파일(.xlsx) 불러오기")
-        btn_excel_import.setStyleSheet("background-color: #475569;")
+        btn_excel_import.setObjectName("btnExcelImport")
+        btn_excel_import.setCursor(Qt.PointingHandCursor)
         btn_excel_import.clicked.connect(self.handle_excel_import)
 
-        input_inner_layout.addWidget(guide_label)
-        input_inner_layout.addWidget(self.txt_input)
-        input_inner_layout.addWidget(btn_parse)
-        input_inner_layout.addWidget(btn_sample)
-        input_inner_layout.addWidget(btn_excel_import)
+        left_layout.addWidget(lbl_input_header)
+        left_layout.addWidget(lbl_input_desc)
+        left_layout.addWidget(self.txt_input)
+        left_layout.addSpacing(6)
+        left_layout.addWidget(btn_parse)
+        left_layout.addWidget(btn_sample)
+        left_layout.addWidget(btn_excel_import)
 
-        left_layout.addWidget(input_group)
-        splitter.addWidget(left_widget)
+        splitter.addWidget(left_card)
 
-        right_widget = QWidget()
-        right_layout = QVBoxLayout(right_widget)
+        # 우측 데이터 표 및 엑셀 내보내기 패널
+        right_card = QFrame()
+        right_card.setStyleSheet("background-color: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0;")
+        right_layout = QVBoxLayout(right_card)
+        right_layout.setContentsMargins(16, 16, 16, 16)
 
-        table_group = QGroupBox("📜 스마트 취합 목록 & 1초 감사 메시지 복사")
-        table_inner_layout = QVBoxLayout(table_group)
+        lbl_table_header = QLabel("📜 스마트 취합 결과 & 1초 감사 인사 복사")
+        lbl_table_header.setStyleSheet("font-size: 15px; font-weight: 700; color: #1e293b; margin-bottom: 4px;")
 
         self.table = QTableWidget()
         self.table.setColumnCount(8)
         self.table.setHorizontalHeaderLabels([
             "NO", "성명(하객)", "축의금액", "소속/관계", "참석/비고", "1초 감사 메시지 복사", "발송상태", "원문"
         ])
+        self.table.setAlternatingRowColors(True)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        self.table.verticalHeader().setVisible(False)
 
-        table_inner_layout.addWidget(self.table)
-        
-        btn_export = QPushButton("📥 완성된 취합 리스트 엑셀로 저장 (xlsx)")
-        btn_export.setObjectName("btnExcel")
+        btn_export = QPushButton("📥 완성된 취합 결과 엑셀 파일로 저장 (xlsx)")
+        btn_export.setObjectName("btnExport")
+        btn_export.setCursor(Qt.PointingHandCursor)
         btn_export.clicked.connect(self.handle_export_excel)
-        table_inner_layout.addWidget(btn_export)
 
-        right_layout.addWidget(table_group)
-        splitter.addWidget(right_widget)
+        right_layout.addWidget(lbl_table_header)
+        right_layout.addWidget(self.table)
+        right_layout.addSpacing(6)
+        right_layout.addWidget(btn_export)
 
-        splitter.setSizes([450, 850])
+        splitter.addWidget(right_card)
+
+        splitter.setSizes([440, 860])
         main_layout.addWidget(splitter)
 
     def handle_load_sample(self):
         self.txt_input.setPlainText(SAMPLE_RAW_TEXT)
         self.handle_parse_text()
-        QMessageBox.information(self, "샘플 완료", "가명화 처리된 샘플 데이터 27건이 취합되었습니다.")
+        QMessageBox.information(self, "샘플 취합 완료", "가명화 처리된 샘플 데이터 27건이 취합되었습니다!")
 
     def handle_parse_text(self):
         text = self.txt_input.toPlainText().strip()
@@ -239,25 +371,42 @@ class ChuguiMasterUI(QMainWindow):
             row = self.table.rowCount()
             self.table.insertRow(row)
 
-            self.table.setItem(row, 0, QTableWidgetItem(str(guest['id'])))
-            self.table.setItem(row, 1, QTableWidgetItem(guest['name']))
-            
+            # NO
+            item_id = QTableWidgetItem(str(guest['id']))
+            item_id.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(row, 0, item_id)
+
+            # 이름
+            item_name = QTableWidgetItem(guest['name'])
+            item_name.setFont(QFont("Pretendard", 10, QFont.Bold))
+            self.table.setItem(row, 1, item_name)
+
+            # 금액
             amt_str = f"{guest['amount']:,} 원"
-            self.table.setItem(row, 2, QTableWidgetItem(amt_str))
-            
+            item_amt = QTableWidgetItem(amt_str)
+            item_amt.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            item_amt.setForeground(QColor("#1e1b4b"))
+            item_amt.setFont(QFont("Pretendard", 10, QFont.Bold))
+            self.table.setItem(row, 2, item_amt)
+
+            # 관계/소속
             belong_rel = f"{guest.get('belong', '')} ({guest['relation']})" if guest.get('belong') else guest['relation']
             self.table.setItem(row, 3, QTableWidgetItem(belong_rel))
-            
+
+            # 참석/비고
             note_att = f"{guest['attended']} {guest.get('note', '')}".strip()
             self.table.setItem(row, 4, QTableWidgetItem(note_att))
 
+            # 1초 복사 버튼
             msg = MessageGenerator.generate(guest)
             btn_copy = QPushButton("📋 인사말 복사")
             btn_copy.setObjectName("btnCopy")
+            btn_copy.setCursor(Qt.PointingHandCursor)
             btn_copy.clicked.connect(lambda _, m=msg, g=guest: self.copy_to_clipboard(m, g))
             self.table.setCellWidget(row, 5, btn_copy)
 
-            chk_sent = QCheckBox("완료")
+            # 발송 상태 체크박스
+            chk_sent = QCheckBox("발송완료")
             chk_sent.setChecked(guest.get('sent_thanks', False))
             chk_sent.stateChanged.connect(lambda state, g=guest: self.toggle_sent(state, g))
             
@@ -268,6 +417,7 @@ class ChuguiMasterUI(QMainWindow):
             chk_layout.setContentsMargins(0, 0, 0, 0)
             self.table.setCellWidget(row, 6, chk_container)
 
+            # 원문
             self.table.setItem(row, 7, QTableWidgetItem(guest.get('raw', '')))
 
     def copy_to_clipboard(self, msg: str, guest: dict):
@@ -275,7 +425,7 @@ class ChuguiMasterUI(QMainWindow):
         clipboard.setText(msg)
         guest['sent_thanks'] = True
         self.render_table()
-        QMessageBox.information(self, "복사 완료", f"[{guest['name']}] 하객 감사 메시지가 클립보드에 복사되었습니다!\n\n카톡/문자 입력창에 바로 Ctrl+V 하세요.")
+        QMessageBox.information(self, "1초 복사 완료", f"[{guest['name']}] 하객 감사 메시지가 클립보드에 복사되었습니다!\n\n카톡이나 문자 입력창에 Ctrl + V 하세요.")
 
     def toggle_sent(self, state, guest):
         guest['sent_thanks'] = (state == 2)
@@ -284,15 +434,13 @@ class ChuguiMasterUI(QMainWindow):
         total_amt = sum(g['amount'] for g in self.guest_data)
         total_guests = len(self.guest_data)
         
-        adult_cost = self.spin_adult_meal.value()
-        child_cost = self.spin_child_meal.value()
-        
-        total_meal_fee = (total_guests * adult_cost)
+        adult_cost = self.spin_adult.value()
+        total_meal_fee = total_guests * adult_cost
         net_profit = total_amt - total_meal_fee
 
-        self.lbl_total_amount.setText(f"총 축의금: {total_amt:,} 원")
-        self.lbl_guest_count.setText(f"총 하객: {total_guests} 명")
-        self.lbl_net_profit.setText(f"순 정산금: {net_profit:,} 원")
+        self.card_total.set_value(f"{total_amt:,} 원")
+        self.card_guests.set_value(f"{total_guests} 명")
+        self.card_net.set_value(f"{net_profit:,} 원")
 
     def handle_export_excel(self):
         if not self.guest_data:
@@ -317,7 +465,7 @@ class ChuguiMasterUI(QMainWindow):
                     })
                 df = pd.DataFrame(export_list)
                 df.to_excel(file_path, index=False)
-                QMessageBox.information(self, "성공", "엑셀 저장 완료!")
+                QMessageBox.information(self, "성공", "엑셀 파일이 성공적으로 저장되었습니다!")
             except Exception as e:
                 QMessageBox.critical(self, "오류", f"엑셀 저장 실패: {str(e)}")
 
