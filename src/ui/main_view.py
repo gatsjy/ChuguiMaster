@@ -17,6 +17,7 @@ from smart_parser import SmartParser
 from message_generator import MessageGenerator
 
 CONFIG_FILE = "config_settings.json"
+AUTOSAVE_FILE = "autosave_session.json"
 
 CATEGORIES = ['친척/가족', '직장/기관', '종교/모임', '학교/동창', '지인/기타']
 
@@ -75,6 +76,28 @@ def save_app_config(adult_meal: int, child_meal: int):
     except Exception:
         pass
 
+def save_autosave_session(guest_data: list, raw_text: str = ""):
+    """작업 중인 하객 데이터를 실시간 자동 저장 (프로그램 강제 종료시 복구용)"""
+    try:
+        data = {
+            "guest_data": guest_data,
+            "raw_text": raw_text
+        }
+        with open(AUTOSAVE_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+def load_autosave_session() -> dict:
+    """자동 저장된 이전 작업 세션 로드"""
+    if os.path.exists(AUTOSAVE_FILE):
+        try:
+            with open(AUTOSAVE_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"guest_data": [], "raw_text": ""}
+
 
 class ToastNotification(QFrame):
     def __init__(self, parent=None):
@@ -125,7 +148,7 @@ class ToastNotification(QFrame):
                 QLabel { color: #ffffff; font-family: 'Pretendard', sans-serif; font-size: 13px; font-weight: 700; border: none; background: transparent; }
             """)
 
-    def show_message(self, message: str, duration_ms: int = 1800):
+    def show_message(self, message: str, duration_ms: int = 2200):
         self.lbl_text.setText(message)
         self.adjustSize()
 
@@ -313,8 +336,8 @@ ChuguiMaster는 카톡이나 메모장에 작성한 자유 서식 텍스트를
 📌 <b>금액 파싱 형식:</b>
 • <code style='color:{code_color};'>10만원</code>, <code style='color:{code_color};'>10만</code>, <code style='color:{code_color};'>100,000</code>, <code style='color:{code_color};'>100000</code> 모두 자동 지원됩니다.
 
-📌 <b>인사말 세팅:</b>
-• 상단 우측 <code style='color:#818cf8;'>⚙️ 감사 인사말 템플릿 세팅</code> 버튼을 통해 나만의 감사 문구를 자유롭게 수정할 수 있습니다.
+📌 <b>자동 저장 & 세션 복구:</b>
+• 작업 중 갑자기 프로그램이 꺼져도 <b>실시간 자동 저장</b>되어 다음 기동 시 이전 작업 내용이 100% 자동 복구됩니다!
         """
         guide_txt = QLabel(guide_html)
         guide_txt.setStyleSheet(f"font-size: 13px; color: {body_color}; line-height: 1.6;")
@@ -376,6 +399,23 @@ class ChuguiMasterUI(QMainWindow):
         self.init_ui()
         self.apply_theme()
         self.toast = ToastNotification(self)
+
+        # 💡 강제 종료 대비 세션 자동 복구 (Auto-Recovery)
+        QTimer.singleShot(400, self.restore_auto_save_session)
+
+    def restore_auto_save_session(self):
+        session = load_autosave_session()
+        saved_guests = session.get("guest_data", [])
+        saved_text = session.get("raw_text", "")
+
+        if saved_text and not self.txt_input.toPlainText():
+            self.txt_input.setPlainText(saved_text)
+
+        if saved_guests:
+            self.guest_data = saved_guests
+            self.render_table()
+            self.update_summary()
+            self.toast.show_message(f"🔄 이전 작업 세션이 자동 복구되었습니다! ({len(self.guest_data)}건)")
 
     def apply_theme(self):
         if self.dark_mode:
@@ -590,6 +630,7 @@ class ChuguiMasterUI(QMainWindow):
 
         self.txt_input = DropTextEdit(self)
         self.txt_input.setPlaceholderText("여기에 축의금 텍스트를 붙여넣거나 엑셀 파일(.xlsx)을 끌어다 놓으세요...\n\n입력 예시:\n홍길동 200,000 친척모임\n최동료 100,000 A보건지소 식권2\n김가족,김친지 300,000 C이모")
+        self.txt_input.textChanged.connect(self.on_text_changed)
 
         btn_parse = QPushButton("⚡ 1초 자동 취합 및 파싱 실행")
         btn_parse.setObjectName("btnParse")
@@ -666,11 +707,16 @@ class ChuguiMasterUI(QMainWindow):
         splitter.setSizes([430, 870])
         main_layout.addWidget(splitter)
 
+    def on_text_changed(self):
+        """텍스트 변경 시 세션 자동 저장"""
+        save_autosave_session(self.guest_data, self.txt_input.toPlainText())
+
     def load_excel_file(self, file_path: str):
         try:
             self.guest_data = SmartParser.parse_excel(file_path)
             self.render_table()
             self.update_summary()
+            save_autosave_session(self.guest_data, self.txt_input.toPlainText())
             self.toast.show_message(f"📂 Drag&Drop 엑셀 수신: {len(self.guest_data)}건 가져오기 완료!")
         except Exception as e:
             QMessageBox.critical(self, "오류", f"엑셀 읽기 실패: {str(e)}")
@@ -707,6 +753,7 @@ class ChuguiMasterUI(QMainWindow):
         self.guest_data = SmartParser.parse_text_lines(text)
         self.render_table()
         self.update_summary()
+        save_autosave_session(self.guest_data, text)
 
     def handle_excel_import(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "엑셀 파일 선택", "", "Excel Files (*.xlsx *.xls *.csv)")
@@ -714,7 +761,6 @@ class ChuguiMasterUI(QMainWindow):
             self.load_excel_file(file_path)
 
     def create_category_combo(self, guest: dict) -> QComboBox:
-        """클릭하여 자유롭게 변경할 수 있는 스마트 드롭다운 관계 뱃지 콤보박스"""
         combo = QComboBox()
         combo.addItems(CATEGORIES)
         
@@ -726,11 +772,11 @@ class ChuguiMasterUI(QMainWindow):
         combo.setStyleSheet(BADGE_STYLES.get(current_rel, BADGE_STYLES['지인/기타']))
         combo.setCursor(Qt.PointingHandCursor)
         
-        # 💡 선택 변경 시 하객 객체와 뱃지 색상, 인사말 실시간 자동 업데이트!
         def on_category_changed(new_cat: str):
             guest['relation'] = new_cat
             combo.setStyleSheet(BADGE_STYLES.get(new_cat, BADGE_STYLES['지인/기타']))
             self.render_table()
+            save_autosave_session(self.guest_data, self.txt_input.toPlainText())
             self.toast.show_message(f"🏷️ [{guest['name']}] 카테고리가 '{new_cat}'(으)로 변경되었습니다!")
 
         combo.currentTextChanged.connect(on_category_changed)
@@ -778,7 +824,7 @@ class ChuguiMasterUI(QMainWindow):
             item_amt.setForeground(amt_fg_color)
             self.table.setItem(row, 2, item_amt)
 
-            # 3. 🌟 드롭다운 변경 가능 관계 태그 콤보박스
+            # 3. 콤보박스
             combo_widget = self.create_category_combo(guest)
             combo_container = QWidget()
             c_layout = QHBoxLayout(combo_container)
@@ -826,10 +872,12 @@ class ChuguiMasterUI(QMainWindow):
         clipboard.setText(msg)
         guest['sent_thanks'] = True
         self.render_table()
+        save_autosave_session(self.guest_data, self.txt_input.toPlainText())
         self.toast.show_message(f"📋 [{guest['name']}] 하객 인사말이 복사되었습니다! (Ctrl+V로 발송하세요)")
 
     def toggle_sent(self, state, guest):
         guest['sent_thanks'] = (state == 2)
+        save_autosave_session(self.guest_data, self.txt_input.toPlainText())
 
     def update_summary(self):
         total_amt = sum(g['amount'] for g in self.guest_data)
