@@ -16,6 +16,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from smart_parser import SmartParser
 from message_generator import MessageGenerator
 
+CONFIG_FILE = "config_settings.json"
+
 SAMPLE_RAW_TEXT = """1 홍길동 200000 친척모임
 2 김철수 100000 친척모임
 3 이영희 300000 친척모임
@@ -43,6 +45,28 @@ SAMPLE_RAW_TEXT = """1 홍길동 200000 친척모임
 25 김성도(조성도) 50000 OO교회
 26 진부부,신부부 100000
 27 권집사 100000 OO교회"""
+
+def load_app_config() -> dict:
+    """식대 단가 설정 로드 (DB 없이 JSON 파일 활용)"""
+    default_config = {"adult_meal": 42000, "child_meal": 25000}
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                default_config.update(data)
+        except Exception:
+            pass
+    return default_config
+
+def save_app_config(adult_meal: int, child_meal: int):
+    """식대 단가 설정 자동 저장"""
+    try:
+        data = {"adult_meal": adult_meal, "child_meal": child_meal}
+        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
 
 class ToastNotification(QFrame):
     def __init__(self, parent=None):
@@ -238,7 +262,6 @@ class TemplateSettingsDialog(QDialog):
 
 
 class HelpDialog(QDialog):
-    """안전성이 완벽히 보장된 작성 가이드 팝업"""
     def __init__(self, dark_mode=True, parent=None):
         super().__init__(parent)
         self.setWindowTitle("❓ 텍스트 입력 및 취합 가이드")
@@ -339,6 +362,9 @@ class ChuguiMasterUI(QMainWindow):
         self.resize(1360, 880)
         self.guest_data = []
         self.dark_mode = True
+
+        # 저장된 식대 단가 설정 불러오기 (JSON 파일)
+        self.saved_config = load_app_config()
 
         self.init_ui()
         self.apply_theme()
@@ -469,7 +495,7 @@ class ChuguiMasterUI(QMainWindow):
         
         self.spin_adult = QSpinBox()
         self.spin_adult.setRange(0, 500000)
-        self.spin_adult.setValue(42000)
+        self.spin_adult.setValue(self.saved_config.get("adult_meal", 42000))
         self.spin_adult.setSingleStep(1000)
         self.spin_adult.setSuffix("원")
         self.spin_adult.valueChanged.connect(self.update_summary)
@@ -480,7 +506,7 @@ class ChuguiMasterUI(QMainWindow):
         
         self.spin_child = QSpinBox()
         self.spin_child.setRange(0, 500000)
-        self.spin_child.setValue(25000)
+        self.spin_child.setValue(self.saved_config.get("child_meal", 25000))
         self.spin_child.setSingleStep(1000)
         self.spin_child.setSuffix("원")
         self.spin_child.valueChanged.connect(self.update_summary)
@@ -751,6 +777,11 @@ class ChuguiMasterUI(QMainWindow):
         total_guests = len(self.guest_data)
         
         adult_cost = self.spin_adult.value()
+        child_cost = self.spin_child.value()
+        
+        # 💡 DB 없이 로컬 config_settings.json 파일에 식대 단가 설정값 즉시 자동 저장!
+        save_app_config(adult_cost, child_cost)
+
         total_meal_fee = total_guests * adult_cost
         net_profit = total_amt - total_meal_fee
 
