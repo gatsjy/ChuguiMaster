@@ -14,34 +14,34 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from smart_parser import SmartParser
 from message_generator import MessageGenerator
 
-# 실제 유저 이미지를 기반으로 한 샘플 데이터 세트
-SAMPLE_RAW_TEXT = """1 유광호 200000 토끼할머니
-2 류관호 100000 토끼할머니
-3 유근호 300000 토끼할머니
-4 강환민 100000
-5 유명숙 100000 둔포보건지구
-6 강명자 100000 탕정보건지소
-7 김경희 100000 아산보건지소
-8 송경식 200000 동해이모
-9 이천우 500000 이천우
-10 송순옥 1000000 서울이모
-11 김해수,김유지 300000 천안이모
-12 최천순 100000 여명교회
-13 한상현 100000 친척
-14 한홍수 2000000 친척
-15 한흥석 100000 친척
-16 이해명 100000 아산시보건소
-17 추영창 100000 천안
-18 서향순 50000 아산시보건소
-19 장유신 50000 아산시보건소
-20 이수연 300000 이수연
-21 김혜림 200000
-22 최원영 100000 아산시보건소
-23 한대선 100000 염치보건소
-24 이숙자 50000 아산시보건소
-25 김재경(조외순) 50000 여명교회
-26 진성룡,신현순 100000
-27 권순현 100000 여명교회"""
+# 🔒 완전히 개인정보 가명화(Anonymized) 처리된 샘플 테스트 데이터
+SAMPLE_RAW_TEXT = """1 홍길동 200000 친척모임
+2 김철수 100000 친척모임
+3 이영희 300000 친척모임
+4 박지성 100000
+5 최동료 100000 A보건지소
+6 정지인 100000 B보건지소
+7 한동네 100000 C보건지소
+8 이삼촌 200000 A이모
+9 김선배 500000 선배모임
+10 박이모 1000000 B이모
+11 김가족,김친지 300000 C이모
+12 최성도 100000 OO교회
+13 한친척 100000 친척
+14 한고모 2000000 친척
+15 한외삼촌 100000 친척
+16 이과장 100000 OO시보건소
+17 추대리 100000 지인모임
+18 서주임 50000 OO시보건소
+19 장팀장 50000 OO시보건소
+20 이후배 300000 동문회
+21 김동기 200000
+22 최차장 100000 OO시보건소
+23 한계장 100000 D보건지소
+24 이직원 50000 OO시보건소
+25 김성도(조성도) 50000 OO교회
+26 진부부,신부부 100000
+27 권집사 100000 OO교회"""
 
 class ChuguiMasterUI(QMainWindow):
     def __init__(self):
@@ -103,7 +103,7 @@ class ChuguiMasterUI(QMainWindow):
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
 
-        # 1. 상단 결산 요약 대시보드 (대인/소인 식대 적용)
+        # 1. 상단 결산 요약 대시보드
         summary_group = QGroupBox("📊 1초 실시간 축의금 & 대인/소인 식대 정산 대시보드")
         summary_layout = QHBoxLayout(summary_group)
 
@@ -113,7 +113,6 @@ class ChuguiMasterUI(QMainWindow):
         self.lbl_guest_count = QLabel("총 하객: 0 명")
         self.lbl_guest_count.setStyleSheet("font-size: 15px; font-weight: bold; color: #334155;")
 
-        # 대인 식대 입력 (이미지 기준: 42,000원)
         adult_meal_layout = QHBoxLayout()
         adult_meal_layout.addWidget(QLabel("대인 단가:"))
         self.spin_adult_meal = QSpinBox()
@@ -124,7 +123,6 @@ class ChuguiMasterUI(QMainWindow):
         self.spin_adult_meal.valueChanged.connect(self.update_summary)
         adult_meal_layout.addWidget(self.spin_adult_meal)
 
-        # 소인 식대 입력 (이미지 기준: 25,000원)
         child_meal_layout = QHBoxLayout()
         child_meal_layout.addWidget(QLabel("소인 단가:"))
         self.spin_child_meal = QSpinBox()
@@ -149,27 +147,26 @@ class ChuguiMasterUI(QMainWindow):
         # 2. 스플리터 레이아웃
         splitter = QSplitter(Qt.Horizontal)
 
-        # 좌측 입력 박스
         left_widget = QWidget()
         left_layout = QVBoxLayout(left_widget)
         
-        input_group = QGroupBox("📋 입력 및 실제 리스트 테스트")
+        input_group = QGroupBox("📋 입력 및 가명화 샘플 테스트")
         input_inner_layout = QVBoxLayout(input_group)
         
         guide_label = QLabel("텍스트를 붙여넣거나 엑셀 파일을 가져오세요.")
         guide_label.setStyleSheet("color: #64748b; font-size: 12px;")
         
         self.txt_input = QTextEdit()
-        self.txt_input.setPlaceholderText("예시 입력:\n1 유광호 200,000 토끼할머니\n5 유명숙 100,000 둔포보건지구\n11 김해수,김유지 300,000 천안이모\n25 김재경(조외순) 50,000 여명교회")
+        self.txt_input.setPlaceholderText("예시 입력:\n1 홍길동 200,000 친척모임\n5 최동료 100,000 A보건지소\n11 김가족,김친지 300,000 C이모\n25 김성도(조성도) 50,000 OO교회")
         
         btn_parse = QPushButton("⚡ 1초 자동 취합 및 파싱")
         btn_parse.clicked.connect(self.handle_parse_text)
 
-        btn_sample = QPushButton("🎯 실제 받은 축의금 리스트 예시 불러오기")
+        btn_sample = QPushButton("🎯 100% 가명화 샘플 데이터 불러오기")
         btn_sample.setObjectName("btnSample")
         btn_sample.clicked.connect(self.handle_load_sample)
         
-        btn_excel_import = QPushButton("📂 실제 엑셀 파일(.xlsx) 불러오기")
+        btn_excel_import = QPushButton("📂 엑셀 파일(.xlsx) 불러오기")
         btn_excel_import.setStyleSheet("background-color: #475569;")
         btn_excel_import.clicked.connect(self.handle_excel_import)
 
@@ -182,7 +179,6 @@ class ChuguiMasterUI(QMainWindow):
         left_layout.addWidget(input_group)
         splitter.addWidget(left_widget)
 
-        # 우측 취합 표
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
 
@@ -214,7 +210,7 @@ class ChuguiMasterUI(QMainWindow):
     def handle_load_sample(self):
         self.txt_input.setPlainText(SAMPLE_RAW_TEXT)
         self.handle_parse_text()
-        QMessageBox.information(self, "샘플 완료", "이미지의 실제 축의금 리스트 27건이 1초 만에 취합되었습니다!")
+        QMessageBox.information(self, "샘플 완료", "가명화 처리된 샘플 데이터 27건이 취합되었습니다.")
 
     def handle_parse_text(self):
         text = self.txt_input.toPlainText().strip()
@@ -255,14 +251,12 @@ class ChuguiMasterUI(QMainWindow):
             note_att = f"{guest['attended']} {guest.get('note', '')}".strip()
             self.table.setItem(row, 4, QTableWidgetItem(note_att))
 
-            # 감사 메시지 복사 버튼
             msg = MessageGenerator.generate(guest)
             btn_copy = QPushButton("📋 인사말 복사")
             btn_copy.setObjectName("btnCopy")
             btn_copy.clicked.connect(lambda _, m=msg, g=guest: self.copy_to_clipboard(m, g))
             self.table.setCellWidget(row, 5, btn_copy)
 
-            # 발송상태 체크
             chk_sent = QCheckBox("완료")
             chk_sent.setChecked(guest.get('sent_thanks', False))
             chk_sent.stateChanged.connect(lambda state, g=guest: self.toggle_sent(state, g))
@@ -293,7 +287,6 @@ class ChuguiMasterUI(QMainWindow):
         adult_cost = self.spin_adult_meal.value()
         child_cost = self.spin_child_meal.value()
         
-        # 총 식대 계산
         total_meal_fee = (total_guests * adult_cost)
         net_profit = total_amt - total_meal_fee
 
