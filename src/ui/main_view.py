@@ -47,7 +47,6 @@ SAMPLE_RAW_TEXT = """1 홍길동 200000 친척모임
 27 권집사 100000 OO교회"""
 
 def load_app_config() -> dict:
-    """식대 단가 설정 로드 (DB 없이 JSON 파일 활용)"""
     default_config = {"adult_meal": 42000, "child_meal": 25000}
     if os.path.exists(CONFIG_FILE):
         try:
@@ -59,7 +58,6 @@ def load_app_config() -> dict:
     return default_config
 
 def save_app_config(adult_meal: int, child_meal: int):
-    """식대 단가 설정 자동 저장"""
     try:
         data = {"adult_meal": adult_meal, "child_meal": child_meal}
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
@@ -363,7 +361,6 @@ class ChuguiMasterUI(QMainWindow):
         self.guest_data = []
         self.dark_mode = True
 
-        # 저장된 식대 단가 설정 불러오기 (JSON 파일)
         self.saved_config = load_app_config()
 
         self.init_ui()
@@ -371,6 +368,7 @@ class ChuguiMasterUI(QMainWindow):
         self.toast = ToastNotification(self)
 
     def apply_theme(self):
+        """테마 적용 (테이블 Alternating Row Backgrounds 완벽 고정)"""
         if self.dark_mode:
             self.btn_theme.setText("☀️ 라이트 모드로 전환")
             self.setStyleSheet("""
@@ -398,7 +396,21 @@ class ChuguiMasterUI(QMainWindow):
                 QPushButton#btnExport { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #059669, stop:1 #10b981); font-size: 14px; }
                 QPushButton#btnCopy { background-color: #064e3b; color: #6ee7b7; border: 1px solid #047857; border-radius: 4px; padding: 3px 8px; font-size: 11px; font-weight: 700; min-height: 22px; }
                 QPushButton#btnCopy:hover { background-color: #10b981; color: #ffffff; }
-                QTableWidget { background-color: #0f172a; border: 1px solid #334155; border-radius: 10px; gridline-color: #1e293b; font-size: 13px; color: #f8fafc; }
+                
+                /* 🌟 테이블 스타일 및 짝수/홀수 행 다크 모드 고정 */
+                QTableWidget {
+                    background-color: #0f172a;
+                    alternate-background-color: #1e293b;
+                    border: 1px solid #334155;
+                    border-radius: 10px;
+                    gridline-color: #1e293b;
+                    font-size: 13px;
+                    color: #f8fafc;
+                }
+                QTableWidget::item {
+                    color: #f8fafc;
+                    padding: 4px;
+                }
                 QHeaderView::section { background-color: #1e293b; font-weight: 700; color: #cbd5e1; padding: 8px; border: none; border-bottom: 2px solid #334155; }
                 QCheckBox { color: #cbd5e1; border: none; background: transparent; }
             """)
@@ -429,7 +441,21 @@ class ChuguiMasterUI(QMainWindow):
                 QPushButton#btnExport { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #059669, stop:1 #10b981); font-size: 14px; }
                 QPushButton#btnCopy { background-color: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; border-radius: 4px; padding: 3px 8px; font-size: 11px; font-weight: 700; min-height: 22px; }
                 QPushButton#btnCopy:hover { background-color: #10b981; color: white; }
-                QTableWidget { background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; gridline-color: #f1f5f9; font-size: 13px; color: #1e293b; }
+                
+                /* 라이트 모드 테이블 스타일 */
+                QTableWidget {
+                    background-color: #ffffff;
+                    alternate-background-color: #f8fafc;
+                    border: 1px solid #e2e8f0;
+                    border-radius: 10px;
+                    gridline-color: #f1f5f9;
+                    font-size: 13px;
+                    color: #1e293b;
+                }
+                QTableWidget::item {
+                    color: #1e293b;
+                    padding: 4px;
+                }
                 QHeaderView::section { background-color: #f8fafc; font-weight: 700; color: #475569; padding: 8px; border: none; border-bottom: 2px solid #e2e8f0; }
                 QCheckBox { color: #475569; border: none; background: transparent; }
             """)
@@ -699,6 +725,12 @@ class ChuguiMasterUI(QMainWindow):
         search_query = self.search_input.text().strip().lower()
         filter_rel = self.filter_combo.currentText()
 
+        # 다크 모드 vs 라이트 모드 글자 색상 보장
+        text_fg_color = QColor("#f8fafc") if self.dark_mode else QColor("#1e293b")
+        amt_fg_color = QColor("#818cf8") if self.dark_mode else QColor("#4338ca")
+        sub_fg_color = QColor("#cbd5e1") if self.dark_mode else QColor("#475569")
+        raw_fg_color = QColor("#94a3b8") if self.dark_mode else QColor("#64748b")
+
         for idx, guest in enumerate(self.guest_data):
             name = guest['name']
             belong_rel = f"{guest.get('belong', '')} ({guest['relation']})"
@@ -711,24 +743,27 @@ class ChuguiMasterUI(QMainWindow):
             row = self.table.rowCount()
             self.table.insertRow(row)
 
+            # 0. NO
             item_id = QTableWidgetItem(str(guest['id']))
             item_id.setTextAlignment(Qt.AlignCenter)
+            item_id.setForeground(sub_fg_color)
             self.table.setItem(row, 0, item_id)
 
+            # 1. 성명 (밝은 흰색/다크 글자 고정)
             item_name = QTableWidgetItem(name)
             item_name.setFont(QFont("Pretendard", 10, QFont.Bold))
+            item_name.setForeground(text_fg_color)
             self.table.setItem(row, 1, item_name)
 
+            # 2. 축의금액
             amt_str = f"{guest['amount']:,} 원"
             item_amt = QTableWidgetItem(amt_str)
             item_amt.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
             item_amt.setFont(QFont("Pretendard", 10, QFont.Bold))
-            if self.dark_mode:
-                item_amt.setForeground(QColor("#818cf8"))
-            else:
-                item_amt.setForeground(QColor("#4338ca"))
+            item_amt.setForeground(amt_fg_color)
             self.table.setItem(row, 2, item_amt)
 
+            # 3. 관계 태그 뱃지
             badge_widget = QWidget()
             b_layout = QHBoxLayout(badge_widget)
             b_layout.addWidget(self.create_category_badge(guest['relation'], guest.get('belong', '')))
@@ -736,9 +771,13 @@ class ChuguiMasterUI(QMainWindow):
             b_layout.setContentsMargins(2, 2, 2, 2)
             self.table.setCellWidget(row, 3, badge_widget)
 
+            # 4. 참석/비고
             note_att = f"{guest['attended']} {guest.get('note', '')}".strip()
-            self.table.setItem(row, 4, QTableWidgetItem(note_att))
+            item_att = QTableWidgetItem(note_att)
+            item_att.setForeground(sub_fg_color)
+            self.table.setItem(row, 4, item_att)
 
+            # 5. 1초 복사 버튼
             msg = MessageGenerator.generate(guest)
             btn_copy = QPushButton("📋 인사말 복사")
             btn_copy.setObjectName("btnCopy")
@@ -746,6 +785,7 @@ class ChuguiMasterUI(QMainWindow):
             btn_copy.clicked.connect(lambda _, m=msg, g=guest: self.copy_to_clipboard(m, g))
             self.table.setCellWidget(row, 5, btn_copy)
 
+            # 6. 발송상태 체크
             chk_sent = QCheckBox("발송완료")
             chk_sent.setChecked(guest.get('sent_thanks', False))
             chk_sent.stateChanged.connect(lambda state, g=guest: self.toggle_sent(state, g))
@@ -757,7 +797,10 @@ class ChuguiMasterUI(QMainWindow):
             chk_layout.setContentsMargins(0, 0, 0, 0)
             self.table.setCellWidget(row, 6, chk_container)
 
-            self.table.setItem(row, 7, QTableWidgetItem(guest.get('raw', '')))
+            # 7. 원문
+            item_raw = QTableWidgetItem(guest.get('raw', ''))
+            item_raw.setForeground(raw_fg_color)
+            self.table.setItem(row, 7, item_raw)
 
     def apply_filter(self):
         self.render_table()
@@ -779,7 +822,6 @@ class ChuguiMasterUI(QMainWindow):
         adult_cost = self.spin_adult.value()
         child_cost = self.spin_child.value()
         
-        # 💡 DB 없이 로컬 config_settings.json 파일에 식대 단가 설정값 즉시 자동 저장!
         save_app_config(adult_cost, child_cost)
 
         total_meal_fee = total_guests * adult_cost
