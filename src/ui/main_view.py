@@ -238,20 +238,25 @@ class TemplateSettingsDialog(QDialog):
 
 
 class HelpDialog(QDialog):
-    def __init__(self, parent=None):
+    """안전성이 완벽히 보장된 작성 가이드 팝업"""
+    def __init__(self, dark_mode=True, parent=None):
         super().__init__(parent)
         self.setWindowTitle("❓ 텍스트 입력 및 취합 가이드")
         self.resize(540, 460)
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #0f172a;
+        self.dark_mode = dark_mode
+        
+        bg = "#0f172a" if self.dark_mode else "#ffffff"
+        text_color = "#f8fafc" if self.dark_mode else "#1e293b"
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {bg};
                 font-family: 'Pretendard', 'Segoe UI', '맑은 고딕', sans-serif;
-            }
-            QLabel {
-                color: #f8fafc;
+            }}
+            QLabel {{
+                color: {text_color};
                 border: none;
                 background: transparent;
-            }
+            }}
         """)
         
         layout = QVBoxLayout(self)
@@ -261,43 +266,46 @@ class HelpDialog(QDialog):
         title.setStyleSheet("font-size: 16px; font-weight: 700; color: #818cf8;")
         layout.addWidget(title)
         
-        guide_txt = QLabel("""
+        code_color = "#a5b4fc" if self.dark_mode else "#4f46e5"
+        body_color = "#cbd5e1" if self.dark_mode else "#334155"
+        
+        guide_html = f"""
 ChuguiMaster는 카톡이나 메모장에 작성한 자유 서식 텍스트를 
 규칙 기반 스마트 파서가 1초 만에 자동 분석합니다.
 
 📌 <b>작성 지원 양식 예시:</b>
-• <b>기본형</b>: <code style='color:#a5b4fc;'>이름 금액 소속</code> (예: 홍길동 10만원 친척)
-• <b>부부/가족</b>: <code style='color:#a5b4fc;'>이름1,이름2 금액</code> (예: 김가족,김친지 300,000원 C이모)
-• <b>식권 지정</b>: <code style='color:#a5b4fc;'>이름 금액 식권수</code> (예: 최동료 10만 식권2)
-• <b>불참/송금</b>: <code style='color:#a5b4fc;'>이름 금액 불참</code> (예: 박지성 5만원 불참)
+• <b>기본형</b>: <code style='color:{code_color};'>이름 금액 소속</code> (예: 홍길동 10만원 친척)
+• <b>부부/가족</b>: <code style='color:{code_color};'>이름1,이름2 금액</code> (예: 김가족,김친지 300,000원 C이모)
+• <b>식권 지정</b>: <code style='color:{code_color};'>이름 금액 식권수</code> (예: 최동료 10만 식권2)
+• <b>불참/송금</b>: <code style='color:{code_color};'>이름 금액 불참</code> (예: 박지성 5만원 불참)
 
 📌 <b>금액 파싱 형식:</b>
-• <code style='color:#a5b4fc;'>10만원</code>, <code style='color:#a5b4fc;'>10만</code>, <code style='color:#a5b4fc;'>100,000</code>, <code style='color:#a5b4fc;'>100000</code> 모두 자동 지원됩니다.
+• <code style='color:{code_color};'>10만원</code>, <code style='color:{code_color};'>10만</code>, <code style='color:{code_color};'>100,000</code>, <code style='color:{code_color};'>100000</code> 모두 자동 지원됩니다.
 
 📌 <b>인사말 세팅:</b>
 • 상단 우측 <code style='color:#818cf8;'>⚙️ 감사 인사말 템플릿 세팅</code> 버튼을 통해 나만의 감사 문구를 자유롭게 수정할 수 있습니다.
-        """)
-        guide_txt.setStyleSheet("font-size: 13px; color: #cbd5e1; line-height: 1.6;")
+        """
+        guide_txt = QLabel(guide_html)
+        guide_txt.setStyleSheet(f"font-size: 13px; color: {body_color}; line-height: 1.6;")
         guide_txt.setWordWrap(True)
         layout.addWidget(guide_txt)
         
         btn_close = QPushButton("확인했습니다")
+        btn_close.setCursor(Qt.PointingHandCursor)
         btn_close.setStyleSheet("background-color: #6366f1; color: white; font-weight: bold; border-radius: 6px; padding: 10px;")
         btn_close.clicked.connect(self.accept)
         layout.addWidget(btn_close)
 
 
 class CompactMetricCard(QFrame):
-    """깔끔하고 컴팩트한 슬림형 KPI 카드 (중첩 테두리 완전 제거)"""
     def __init__(self, title: str, initial_value: str, icon_str: str, text_color: str):
         super().__init__()
         self.setObjectName("compactCard")
-        self.setFixedHeight(75) # 슬림 컴팩트 높이
+        self.setFixedHeight(75)
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(14, 10, 14, 10)
 
-        # 좌측 아이콘 + 타이틀
         left_box = QVBoxLayout()
         left_box.setSpacing(2)
 
@@ -314,7 +322,6 @@ class CompactMetricCard(QFrame):
 
         left_box.addLayout(icon_title_layout)
 
-        # 수치 표시
         self.lbl_val = QLabel(initial_value)
         self.lbl_val.setStyleSheet(f"font-size: 20px; font-weight: 800; color: {text_color}; border: none; background: transparent; font-family: 'Pretendard', sans-serif;")
         left_box.addWidget(self.lbl_val)
@@ -326,7 +333,6 @@ class CompactMetricCard(QFrame):
 
 
 class ChuguiMasterUI(QMainWindow):
-    """컴팩트 디자인이 적용된 ChuguiMaster 메인 윈도우"""
     def __init__(self):
         super().__init__()
         self.setWindowTitle("💍 ChuguiMaster Pro - 스마트 축의금 정산 & 감사 메시지")
@@ -339,7 +345,6 @@ class ChuguiMasterUI(QMainWindow):
         self.toast = ToastNotification(self)
 
     def apply_theme(self):
-        """테마 전환 스위치 (QFrame 자식 테두리 겹침 완전 제거)"""
         if self.dark_mode:
             self.btn_theme.setText("☀️ 라이트 모드로 전환")
             self.setStyleSheet("""
@@ -418,7 +423,6 @@ class ChuguiMasterUI(QMainWindow):
         main_layout.setSpacing(12)
         main_layout.setContentsMargins(16, 16, 16, 16)
 
-        # 상단 타이틀 및 액션 헤더바
         header_bar = QHBoxLayout()
         title_app = QLabel("💍 ChuguiMaster Pro")
         title_app.setStyleSheet("font-size: 17px; font-weight: 800; color: #818cf8; border: none;")
@@ -440,14 +444,12 @@ class ChuguiMasterUI(QMainWindow):
 
         main_layout.addLayout(header_bar)
 
-        # 1. 상단 컴팩트 슬림 KPI 대시보드 카드 레이아웃 (높이 75px)
         kpi_layout = QHBoxLayout()
         kpi_layout.setSpacing(10)
 
         self.card_total = CompactMetricCard("총 수령 축의금", "0 원", "💳", "#818cf8")
         self.card_guests = CompactMetricCard("총 하객 수", "0 명", "👥", "#38bdf8")
         
-        # 컴팩트 식대 단가 카드
         meal_card = QFrame()
         meal_card.setObjectName("compactCard")
         meal_card.setFixedHeight(75)
@@ -497,10 +499,8 @@ class ChuguiMasterUI(QMainWindow):
 
         main_layout.addLayout(kpi_layout)
 
-        # 2. 메인 스플리터
         splitter = QSplitter(Qt.Horizontal)
 
-        # 좌측 입력 패널
         left_card = QFrame()
         left_card.setObjectName("compactCard")
         left_layout = QVBoxLayout(left_card)
@@ -556,7 +556,6 @@ class ChuguiMasterUI(QMainWindow):
 
         splitter.addWidget(left_card)
 
-        # 우측 데이터 표 패널
         right_card = QFrame()
         right_card.setObjectName("compactCard")
         right_layout = QVBoxLayout(right_card)
@@ -617,13 +616,22 @@ class ChuguiMasterUI(QMainWindow):
             QMessageBox.critical(self, "오류", f"엑셀 읽기 실패: {str(e)}")
 
     def show_template_settings(self):
-        dialog = TemplateSettingsDialog(dark_mode=self.dark_mode, parent=self)
-        if dialog.exec():
-            self.render_table()
+        try:
+            dialog = TemplateSettingsDialog(dark_mode=self.dark_mode, parent=self)
+            if dialog.exec():
+                self.render_table()
+        except Exception as e:
+            QMessageBox.critical(self, "설정 오류", f"템플릿 세팅 팝업 열기 실패: {str(e)}")
 
     def show_help(self):
-        dialog = HelpDialog(self)
-        dialog.exec()
+        try:
+            dialog = HelpDialog(dark_mode=self.dark_mode, parent=self)
+            if hasattr(dialog, 'exec_'):
+                dialog.exec_()
+            else:
+                dialog.exec()
+        except Exception as e:
+            QMessageBox.information(self, "작성 가이드", "📌 **입력 양식 예시**:\n홍길동 10만원 친척\n김가족,김친지 30만 C이모\n최동료 10만 식권2\n\n- 텍스트나 엑셀(.xlsx)을 이 창에 붙여넣거나 끌어다 놓으세요!")
 
     def handle_load_sample(self):
         self.txt_input.setPlainText(SAMPLE_RAW_TEXT)
