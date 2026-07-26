@@ -77,7 +77,6 @@ def save_app_config(adult_meal: int, child_meal: int):
         pass
 
 def save_autosave_session(guest_data: list, raw_text: str = ""):
-    """작업 중인 하객 데이터를 실시간 자동 저장 (프로그램 강제 종료시 복구용)"""
     try:
         data = {
             "guest_data": guest_data,
@@ -89,7 +88,6 @@ def save_autosave_session(guest_data: list, raw_text: str = ""):
         pass
 
 def load_autosave_session() -> dict:
-    """자동 저장된 이전 작업 세션 로드"""
     if os.path.exists(AUTOSAVE_FILE):
         try:
             with open(AUTOSAVE_FILE, 'r', encoding='utf-8') as f:
@@ -293,10 +291,11 @@ class TemplateSettingsDialog(QDialog):
 
 
 class HelpDialog(QDialog):
+    """HTML / Rich Text 포맷 지정을 통해 태그 노출 없이 완벽 렌더링"""
     def __init__(self, dark_mode=True, parent=None):
         super().__init__(parent)
         self.setWindowTitle("❓ 텍스트 입력 및 취합 가이드")
-        self.resize(540, 460)
+        self.resize(560, 480)
         self.dark_mode = dark_mode
         
         bg = "#0f172a" if self.dark_mode else "#ffffff"
@@ -323,24 +322,33 @@ class HelpDialog(QDialog):
         code_color = "#a5b4fc" if self.dark_mode else "#4f46e5"
         body_color = "#cbd5e1" if self.dark_mode else "#334155"
         
-        guide_html = f"""
-ChuguiMaster는 카톡이나 메모장에 작성한 자유 서식 텍스트를 
-규칙 기반 스마트 파서가 1초 만에 자동 분석합니다.
+        guide_html = f"""<html><head/><body>
+<p style='color:{body_color}; font-size:13px; line-height:1.6;'>
+ChuguiMaster는 카톡이나 메모장에 작성한 자유 서식 텍스트를 규칙 기반 스마트 파서가 1초 만에 자동 분석합니다.
+</p>
 
-📌 <b>작성 지원 양식 예시:</b>
-• <b>기본형</b>: <code style='color:{code_color};'>이름 금액 소속</code> (예: 홍길동 10만원 친척)
-• <b>부부/가족</b>: <code style='color:{code_color};'>이름1,이름2 금액</code> (예: 김가족,김친지 300,000원 C이모)
-• <b>식권 지정</b>: <code style='color:{code_color};'>이름 금액 식권수</code> (예: 최동료 10만 식권2)
-• <b>불참/송금</b>: <code style='color:{code_color};'>이름 금액 불참</code> (예: 박지성 5만원 불참)
+<p style='color:{body_color}; font-size:13px; line-height:1.6;'>
+📌 <b>작성 지원 양식 예시:</b><br/>
+• <b>기본형</b>: <span style='color:{code_color}; font-family:monospace;'>이름 금액 소속</span> (예: 홍길동 10만원 친척)<br/>
+• <b>부부/가족</b>: <span style='color:{code_color}; font-family:monospace;'>이름1,이름2 금액</span> (예: 김가족,김친지 300,000원 C이모)<br/>
+• <b>식권 지정</b>: <span style='color:{code_color}; font-family:monospace;'>이름 금액 식권수</span> (예: 최동료 10만 식권2)<br/>
+• <b>불참/송금</b>: <span style='color:{code_color}; font-family:monospace;'>이름 금액 불참</span> (예: 박지성 5만원 불참)
+</p>
 
-📌 <b>금액 파싱 형식:</b>
-• <code style='color:{code_color};'>10만원</code>, <code style='color:{code_color};'>10만</code>, <code style='color:{code_color};'>100,000</code>, <code style='color:{code_color};'>100000</code> 모두 자동 지원됩니다.
+<p style='color:{body_color}; font-size:13px; line-height:1.6;'>
+📌 <b>금액 파싱 형식:</b><br/>
+• <span style='color:{code_color}; font-family:monospace;'>10만원</span>, <span style='color:{code_color}; font-family:monospace;'>10만</span>, <span style='color:{code_color}; font-family:monospace;'>100,000</span>, <span style='color:{code_color}; font-family:monospace;'>100000</span> 모두 자동 지원됩니다.
+</p>
 
-📌 <b>자동 저장 & 세션 복구:</b>
+<p style='color:{body_color}; font-size:13px; line-height:1.6;'>
+📌 <b>자동 저장 & 세션 복구:</b><br/>
 • 작업 중 갑자기 프로그램이 꺼져도 <b>실시간 자동 저장</b>되어 다음 기동 시 이전 작업 내용이 100% 자동 복구됩니다!
-        """
-        guide_txt = QLabel(guide_html)
-        guide_txt.setStyleSheet(f"font-size: 13px; color: {body_color}; line-height: 1.6;")
+</p>
+</body></html>"""
+
+        guide_txt = QLabel()
+        guide_txt.setTextFormat(Qt.RichText) # 🌟 RichText 포맷 강제 명시
+        guide_txt.setText(guide_html)
         guide_txt.setWordWrap(True)
         layout.addWidget(guide_txt)
         
@@ -400,7 +408,6 @@ class ChuguiMasterUI(QMainWindow):
         self.apply_theme()
         self.toast = ToastNotification(self)
 
-        # 💡 강제 종료 대비 세션 자동 복구 (Auto-Recovery)
         QTimer.singleShot(400, self.restore_auto_save_session)
 
     def restore_auto_save_session(self):
@@ -708,7 +715,6 @@ class ChuguiMasterUI(QMainWindow):
         main_layout.addWidget(splitter)
 
     def on_text_changed(self):
-        """텍스트 변경 시 세션 자동 저장"""
         save_autosave_session(self.guest_data, self.txt_input.toPlainText())
 
     def load_excel_file(self, file_path: str):
