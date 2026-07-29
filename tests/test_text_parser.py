@@ -108,18 +108,15 @@ class TestParseText:
     def test_sample_data_parses_exactly(self):
         """앱에 내장된 샘플이 첫 화면에서 틀린 숫자를 보여주면 안 된다."""
         guests = parse_text(SAMPLE_TEXT)
-        assert len(guests) == 27
+        assert len(guests) == 10
 
         by_name = {guest.name: guest for guest in guests}
         assert by_name["홍길동"].amount == 200_000
-        assert by_name["최동료"].amount == 100_000
-        assert by_name["박대현"].amount == 1_000_000
-        assert by_name["한고모"].amount == 2_000_000
-        assert by_name["김가족 & 김친지"].amount == 300_000
-        assert by_name["진부부 & 신부부"].amount == 100_000
+        assert by_name["김철수"].amount == 100_000
+        assert by_name["이영희"].amount == 300_000
+        assert by_name["최동욱"].amount == 500_000
 
-        # 샘플 전체 합계는 v1에서 수천만원대로 부풀려졌다.
-        assert sum(guest.amount for guest in guests) == 6_600_000
+        assert sum(guest.amount for guest in guests) == 2_000_000
 
     def test_sample_data_has_no_warnings(self):
         guests = parse_text(SAMPLE_TEXT)

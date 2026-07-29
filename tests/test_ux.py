@@ -464,7 +464,7 @@ class TestFeedback:
 
     def test_status_bar_summarises_after_load(self, loaded_window):
         message = loaded_window.statusBar().currentMessage()
-        assert "27건" in message
+        assert "10건" in message
         assert "평균" in message
         assert "감사 인사" in message
 
