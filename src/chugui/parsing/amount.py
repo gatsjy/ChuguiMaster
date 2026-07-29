@@ -31,7 +31,8 @@ _UNITS: dict[str, int] = {
 _UNIT_RANK: dict[str, int] = {unit: rank for rank, unit in enumerate(_UNITS)}
 
 # 단위 대체 표기는 정규식 교대에서 반드시 긴 것부터 와야 한다("천만"이 "천"보다 앞).
-_NUM_UNIT_RE = re.compile(r"(\d[\d,]*)\s*(억|천만|백만|십만|만|천|원)?")
+# 단위 뒤에 일반 한글 단어가 이어지면(예: "천안") 단위가 아닌 단어의 일부로 판단한다.
+_NUM_UNIT_RE = re.compile(r"(\d[\d,]*)\s*(억|천만|백만|십만|만|천)?(원)?(?![가-힣A-Za-z])")
 
 # --- 금액이 아닌 숫자를 제거하기 위한 패턴들 -------------------------------
 _TICKET_RE = re.compile(r"(식권|식대|대인|성인|소인|어린이|아동|아이)\s*[:=]?\s*\d+\s*(명|장|개)?")
@@ -62,7 +63,7 @@ def iter_amount_candidates(text: str) -> Iterator[int]:
     last_multiplier = 0
 
     for match in _NUM_UNIT_RE.finditer(text):
-        digits, unit = match.group(1), match.group(2)
+        digits, unit, won = match.group(1), match.group(2), match.group(3)
         try:
             number = int(digits.replace(",", ""))
         except ValueError:  # pragma: no cover - 정규식상 도달 불가
@@ -90,7 +91,7 @@ def iter_amount_candidates(text: str) -> Iterator[int]:
             accumulator = 0
             last_rank = -1
             last_multiplier = 0
-        if unit == "원" or number >= 1_000:
+        if won == "원" or number >= 1_000:
             yield number
 
     if accumulator:
