@@ -70,7 +70,7 @@ def build(onefile: bool = False, clean: bool = True) -> int:
         print(f"\n[오류] 빌드 실패 (exit {exc.returncode})")
         return exc.returncode
 
-    target = ROOT / "dist" / (f"{APP_NAME}.exe" if onefile else APP_NAME / f"{APP_NAME}.exe")
+    target = ROOT / "dist" / (f"{APP_NAME}.exe" if onefile else Path(APP_NAME) / f"{APP_NAME}.exe")
     print("\n[완료] 빌드 성공")
     print(f"  산출물: {target}")
     if target.exists():
