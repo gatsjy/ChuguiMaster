@@ -9,6 +9,13 @@ dist/
 *.manifest
 *.spec
 
+# 테스트 / 도구 캐시
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
 # Environments
 .venv/
 venv/
@@ -22,3 +29,20 @@ env/
 # OS generated
 Thumbs.db
 Desktop.ini
+.DS_Store
+
+# 사용자 데이터 - 하객 실명과 금액이 들어간다. 절대 커밋하지 않는다.
+# v2부터는 OS 사용자 데이터 폴더에 저장되지만, v1 잔재와 실수 커밋을 막기 위해 남겨둔다.
+config_settings.json
+autosave_session.json
+template_settings.json
+config.json
+session.json
+templates.json
+*.json.bak
+
+# 축의금 원본 데이터
+*.xlsx
+*.xlsm
+*.xls
+*.csv

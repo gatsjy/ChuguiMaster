@@ -1,0 +1,392 @@
+# ChuguiMaster 동작 Flow
+
+> v2.0.0 기준. 이 문서는 **코드가 실제로 하는 일**을 기술한다.
+> 기능 소개는 [README.md](README.md)를 참고.
+
+---
+
+## 1. 계층 구조
+
+의존 방향은 **한 방향**이다. 아래 계층은 위 계층을 절대 import 하지 않는다.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  ui/          MainWindow · GuestTableModel · Delegates      │  PySide6 의존
+│               Dialogs · Widgets · Theme                     │
+└───────────────────────────┬─────────────────────────────────┘
+                            │ 호출
+┌───────────────────────────▼─────────────────────────────────┐
+│  services/    settlement · messages · merge · exporter      │  Qt 비의존
+├─────────────────────────────────────────────────────────────┤
+│  parsing/     amount · names · relations                    │  Qt 비의존
+│               text_parser · excel_parser                    │  순수 함수
+├─────────────────────────────────────────────────────────────┤
+│  storage/     paths · atomic · repositories                 │  Qt 비의존
+├─────────────────────────────────────────────────────────────┤
+│  models.py    Guest · Relation · Attendance · Payment       │  의존 없음
+└─────────────────────────────────────────────────────────────┘
+```
+
+`services` / `parsing` / `storage` 가 Qt에 의존하지 않는 것이 핵심이다.
+그래서 전체 테스트 211개 중 GUI가 필요한 것은 표 모델 테스트 27개뿐이고,
+나머지 184개는 순수 함수 테스트로 몇 밀리초 만에 돈다.
+
+---
+
+## 2. 기동 Flow
+
+```mermaid
+flowchart TD
+    A["main.py"] --> B["src를 sys.path에 추가<br/>(설치본이면 통과)"]
+    B --> C["chugui.app.run()"]
+    C --> D["setup_logging()<br/>%LOCALAPPDATA%/ChuguiMaster/logs/"]
+    D --> E["migrate_legacy_files()<br/>v1 파일 1회 이전"]
+    E --> F["QApplication 생성"]
+    F --> G["install_excepthook()<br/>예외 → 로그 + 안내 팝업"]
+    G --> H["MainWindow.__init__"]
+    H --> I["ConfigRepository.load()<br/>식대 단가 · 테마 · 창 크기"]
+    H --> J["TemplateRepository.load()<br/>→ MessageService"]
+    H --> K["GuestTableModel + GuestFilterProxy"]
+    K --> L["UI 조립 · 테마 적용"]
+    L --> M["QTimer 120ms 후<br/>_restore_session()"]
+    M --> N["SessionRepository.load()"]
+    N --> O{"복구할 데이터?"}
+    O -- 있음 --> P["모델에 반영 + 토스트 알림"]
+    O -- 없음 --> Q["빈 화면"]
+```
+
+**세션 복구가 안전한 이유**: `Guest.from_dict()` 가 어떤 형태의 dict도 받아
+유효한 객체를 만든다. 키가 빠졌거나 v1 스키마(`attended`, `guest_data`)여도
+예외를 던지지 않는다.
+
+> v1은 여기서 죽었다. 저장소에 커밋된 `autosave_session.json` 에
+> `{"id":1,"name":"테스트"}` 라는 부분 레코드가 들어 있었고,
+> 렌더링 코드가 `guest['relation']` 을 `.get()` 없이 읽어
+> clone한 모든 사용자가 첫 실행에서 `KeyError` 팝업을 봤다.
+
+---
+
+## 3. 텍스트 파싱 Flow
+
+`[자동 취합 및 파싱]` 또는 `Ctrl+Enter`
+
+```mermaid
+flowchart TD
+    A["입력 텍스트"] --> B["parse_text()<br/>줄 단위 분할"]
+    B --> C{"빈 줄 · 주석<br/>(#, //, ---)?"}
+    C -- 예 --> Z["건너뜀"]
+    C -- 아니오 --> D["parse_line()"]
+
+    D --> E["extract_names()"]
+    D --> F["extract_amount()"]
+    D --> G["_resolve_attendance()"]
+    D --> H["guess_relation()"]
+
+    E --> E1["괄호 별칭 분리<br/>김성도(조성도)"]
+    E1 --> E2["한글 2~5자 토큰만 후보"]
+    E2 --> E3["조직 접미사 · 상태어 제외"]
+    E3 --> E4{"찾음?"}
+    E4 -- 아니오 --> E5["'하객N' + ⚠ 이름 미인식"]
+
+    F --> F1["1. 비금액 숫자 제거<br/>줄번호 · 식권N · 날짜 · 전화 · 계좌"]
+    F1 --> F2["2. 숫자+단위 후보 추출<br/>억 · 천만 · 백만 · 십만 · 만 · 천"]
+    F2 --> F3["3. 단위 없는 1000 미만은 제외<br/>(추측하지 않음)"]
+    F3 --> F4{"후보 수"}
+    F4 -- "0개" --> F5["0 + ⚠ 금액 미발견"]
+    F4 -- "2개+" --> F6["최댓값 + ⚠ 금액 모호"]
+    F4 -- "1개" --> F7["확정"]
+
+    G --> G1{"불참·미참·못옴?"}
+    G1 -- 예 --> G2["불참 · 식권 0장"]
+    G1 -- 아니오 --> G3{"명시적 참석?"}
+    G3 -- 예 --> G4["참석"]
+    G3 -- 아니오 --> G5{"'송금'?"}
+    G5 -- 예 --> G2
+    G5 -- 아니오 --> G4
+
+    G4 --> T{"식권N 명시?"}
+    T -- 예 --> T1["명시된 수"]
+    T -- 아니오 --> T2["사람 수만큼<br/>(부부 = 2장)"]
+
+    H --> H1["가장 긴 키워드가 승리<br/>동점이면 친척>직장>종교>학교>기타"]
+
+    E5 & E4 & F5 & F6 & F7 & G2 & T1 & T2 & H1 --> Y["Guest 객체"]
+    Y --> X["renumber() → 순번 1..N"]
+```
+
+### 금액 파싱 규칙표
+
+| 입력 | 결과 | 근거 |
+|---|---|---|
+| `1 홍길동 200000 친척모임` | 200,000 | 선행 줄번호 제거 |
+| `최동료 10만 식권2` | 100,000 | `식권2` 제거 후 단위 해석 |
+| `10만 5천원` | 105,000 | 단위 내림차순 → 합산 |
+| `3억 2천만원` | 320,000,000 | `천만` 을 `천` 보다 먼저 매칭 |
+| `2025-03-14 홍길동 100,000` | 100,000 | 날짜 제거 |
+| `홍길동 010-1234-5678 100000` | 100,000 | 전화번호 제거 |
+| `500` | **0 + ⚠** | 단위 없는 1000 미만은 추측하지 않음 |
+| `이백만원` | **0 + ⚠** | 한글 수사 미지원 → 사용자 확인 |
+
+> v1은 줄 전체에서 `re.findall(r'\d+')` 한 결과를 **이어붙였다**.
+> `1 홍길동 200000` → `"1"+"200000"` = 1,200,000원(6배).
+> `500` 은 `< 1000` 이라는 이유로 500만원으로 승격됐다.
+
+---
+
+## 4. 스프레드시트 파싱 Flow
+
+파일 드롭 또는 `[엑셀 / CSV 불러오기]`
+
+```mermaid
+flowchart TD
+    A["파일 경로"] --> B{"확장자"}
+    B -- ".xlsx / .xlsm" --> C["openpyxl<br/>read_only + data_only"]
+    B -- ".csv" --> D["csv.Sniffer + 인코딩 순차 시도<br/>utf-8-sig → cp949 → euc-kr → utf-8"]
+    B -- ".xls" --> E["안내 메시지<br/>'xlsx로 저장 후 재시도'"]
+
+    C & D --> F["_find_header_row()<br/>상위 20행 점수화"]
+    F --> F1["성명계열 +2 · 금액계열 +2<br/>소속 +1 · 비고 +1"]
+    F1 --> G["_match_column()<br/>가장 긴 키워드 우선"]
+
+    G --> H["행 순회"]
+    H --> I{"빈 행 · 합계/소계 행?"}
+    I -- 예 --> H
+    I -- 아니오 --> J["Guest 생성"]
+    J --> K["금액 0이면 ⚠"]
+    K --> L["merge_guests()로 전달"]
+```
+
+**은행 거래내역 지원**: `보낸분` / `입금액` / `기재내용` / `적요` 컬럼명을 인식하고,
+상단 안내 행(계좌번호·조회기간)을 자동으로 건너뛴다.
+
+> v1은 `pd.read_excel(path)` 로 첫 행을 무조건 헤더로 잡아 은행 엑셀을 통째로 실패했고,
+> 파일 다이얼로그와 드래그&드롭에서 `.csv` 를 받아놓고 `read_excel` 만 호출해
+> `ValueError` 로 죽었다.
+
+---
+
+## 5. 병합 Flow (현금 + 계좌이체)
+
+```mermaid
+flowchart LR
+    A["기존 목록<br/>(현금 명단)"] --> C["merge_guests()"]
+    B["신규 목록<br/>(은행 엑셀)"] --> C
+    C --> D["이름 정규화<br/>공백·구분자·괄호 제거"]
+    D --> E["본명 + 구성원 + 별칭<br/>모두 인덱싱"]
+    E --> F{"이름 일치?"}
+    F -- 아니오 --> G["그대로 추가"]
+    F -- 예 --> H["양쪽에 ⚠ 중복 의심<br/>둘 다 유지"]
+    G & H --> I["renumber()"]
+    I --> J["'확인 필요만' 필터 자동 ON"]
+```
+
+**같은 이름을 자동 병합하지 않는 이유**: 축의금은 돈이다.
+동명이인이 현금과 계좌로 각각 낸 경우와 같은 사람이 중복 기입된 경우를
+프로그램이 구분할 수 없다. 한 건을 조용히 삼키는 것보다 사용자에게
+확인시키는 편이 항상 안전하다.
+
+> v1에는 병합 자체가 없었다. `self.guest_data = parse_...()` 로
+> 통째로 덮어써서, 텍스트를 취합한 뒤 엑셀을 드롭하면 현금 내역이 전부 사라졌다.
+> README가 내세운 핵심 기능 2번이 코드에 존재하지 않았다.
+
+---
+
+## 6. 정산 Flow
+
+값이 바뀔 때마다(`guestsChanged` · 식대 스핀박스) 재계산된다.
+
+```
+총 축의금   = Σ guest.amount
+대인 식권   = Σ guest.adult_tickets      ← 불참자는 0
+소인 식권   = Σ guest.child_tickets
+총 식대     = 대인식권 × 대인단가 + 소인식권 × 소인단가
+최종 순정산 = 총 축의금 − 총 식대
+```
+
+| | v1 | v2 |
+|---|---|---|
+| 식대 기준 | 하객 **명** 수 | 발급 **식권** 수 |
+| `식권2` 파싱 결과 | 사용 안 함 | 반영 |
+| 소인 단가 | **계산에 미반영** | 반영 |
+| 불참 하객 | 식대 차감됨 | 제외 |
+
+---
+
+## 7. 표 렌더링 Flow (Model/View)
+
+```mermaid
+flowchart TD
+    A["GuestTableModel<br/>단일 진실 공급원"] --> B["GuestFilterProxy"]
+    B --> B1["검색어 (이름·소속·비고·원문·별칭)"]
+    B --> B2["관계 필터"]
+    B --> B3["확인 필요만"]
+    B --> B4["미발송만"]
+    B --> B5["정렬 (EditRole → 금액은 숫자 정렬)"]
+    B --> C["QTableView"]
+
+    C --> D["RelationBadgeDelegate<br/>배지 그리기 + 콤보 편집기"]
+    C --> E["AttendanceDelegate"]
+    C --> F["TicketSpinDelegate"]
+    C --> G["CopyButtonDelegate<br/>버튼 그리기 + 클릭 처리"]
+    C --> H["CheckStateRole<br/>발송 체크박스(위젯 아님)"]
+
+    I["사용자 편집"] --> J["setData()"]
+    J --> K["Guest 객체 직접 갱신"]
+    K --> L["dataChanged + guestsChanged"]
+    L --> M["요약 재계산"]
+    L --> N["자동 저장 예약"]
+```
+
+**델리게이트를 쓰는 이유**
+
+| | v1 (QTableWidget) | v2 (Model/View) |
+|---|---|---|
+| 검색 1글자 입력 | 표 전체 재구축, 300행이면 위젯 1,500개 생성 | 프록시 필터만 재평가, 위젯 생성 0개 |
+| 셀 편집 | `guest_data` 미반영 → 다음 렌더링에 **조용히 원복** | `setData` 로 즉시 반영 + 자동 저장 |
+| 관계 변경 | 콤보 시그널 안에서 `setRowCount(0)` → **자기 자신 파괴** | 재진입 구조 자체가 없음 |
+| 정렬 | 없음 | 모든 열, 금액은 숫자 기준 |
+
+---
+
+## 8. 감사 메시지 Flow
+
+```mermaid
+flowchart LR
+    A["Guest"] --> B["관계 × 참석여부"]
+    B --> C["template_for()"]
+    C --> D["render()<br/>정규식 치환"]
+    D --> D1["{name} {relation}<br/>{amount} {belong}"]
+    D --> D2["알 수 없는 자리표시자는<br/>원문 그대로 유지"]
+    D1 & D2 --> E["완성 문구"]
+    E --> F["[복사] 클릭 → 클립보드"]
+    F --> G["발송 체크는 사용자가 직접"]
+```
+
+**`str.format` 을 쓰지 않는 이유**: 템플릿은 사용자가 자유 편집한다.
+`.format()` 은 `{` 하나만 있어도 `KeyError` 를 던진다.
+
+> v1은 그 예외가 표 렌더링 루프 안에서 터져 **표 전체가 죽었고**,
+> 잘못된 템플릿은 JSON에 영구 저장되어 재실행해도 계속 죽었다.
+> v2는 정규식 치환이라 어떤 사용자 입력으로도 예외가 나지 않고,
+> 저장 시 미지원 자리표시자를 안내만 한다.
+
+**복사 ≠ 발송**: v1은 복사 버튼을 누르면 자동으로 발송완료 처리했다.
+문구를 확인만 하려고 눌러도 발송 처리되어 추적이 무의미해졌다.
+v2에서 발송 체크는 사용자가 직접 한다.
+
+---
+
+## 9. 저장 Flow
+
+```mermaid
+flowchart TD
+    A["텍스트 입력 / 표 편집 / 발송 체크"] --> B["_schedule_autosave()"]
+    B --> C["QTimer 600ms 디바운스"]
+    C --> D["SessionRepository.save()"]
+
+    E["식대 단가 / 테마 / 창 크기"] --> F["QTimer 800ms 디바운스"]
+    F --> G["ConfigRepository.save()"]
+
+    D & G --> H["write_json_atomic()"]
+    H --> H1["1. 같은 폴더에 임시 파일 생성"]
+    H1 --> H2["2. write + flush + fsync"]
+    H2 --> H3["3. 기존 파일 → .bak 로 이동"]
+    H3 --> H4["4. os.replace(임시, 본파일)<br/>동일 볼륨에서 원자적"]
+
+    I["프로그램 종료"] --> J["closeEvent<br/>타이머 취소 후 즉시 저장"]
+```
+
+**읽기 시 자동 복구**: `read_json()` 은 본 파일이 깨졌으면 `.bak` 을 시도한다.
+
+| | v1 | v2 |
+|---|---|---|
+| 저장 위치 | 실행 디렉터리 (상대 경로) | `%LOCALAPPDATA%\ChuguiMaster\` |
+| 저장 빈도 | **키 입력 한 번마다 전체 JSON** | 600ms 디바운스 |
+| 저장 방식 | 대상 파일 직접 덮어쓰기 | 임시 파일 + `os.replace` |
+| 손상 시 | 복구 불가 | `.bak` 자동 복구 |
+| 실패 시 | `except: pass` (무성) | 로그 + 상태바 안내 |
+
+> v1은 `Program Files` 에 설치하면 저장이 실패하는데 사용자는 영문도 몰랐다.
+> `--onefile` exe는 실행 위치가 매번 달라 설정이 여기저기 흩어졌다.
+
+---
+
+## 10. 전체 사용자 시나리오
+
+```mermaid
+sequenceDiagram
+    actor U as 사용자
+    participant W as MainWindow
+    participant P as parsing
+    participant M as GuestTableModel
+    participant S as services
+    participant R as storage
+
+    U->>W: 카톡 명단 붙여넣기
+    W->>R: 자동 저장 예약 (600ms)
+    U->>W: Ctrl+Enter
+    W->>P: parse_text()
+    P-->>W: Guest[] (+ 경고)
+    W->>M: set_guests()
+    M->>S: settle()
+    S-->>W: 총액 · 식대 · 순정산 · 확인필요
+    W->>R: 세션 저장
+
+    U->>W: 은행 엑셀 드롭
+    W->>P: parse_spreadsheet()
+    W->>S: merge_guests()
+    S-->>M: 병합 결과 + 중복 표시
+    W-->>U: "12건 추가 · 중복 의심 2건"
+
+    U->>W: '확인 필요만' 체크
+    U->>M: 셀 직접 수정
+    M->>R: 자동 저장
+
+    U->>W: [복사] 클릭
+    W->>S: MessageService.generate()
+    S-->>W: 감사 문구
+    W-->>U: 클립보드 + 토스트
+    U->>M: 발송 체크
+
+    U->>W: Ctrl+S
+    W->>S: export_to_excel()
+    S-->>U: 명단 시트 + 정산 요약 시트
+```
+
+---
+
+## 11. 오류 처리 원칙
+
+| 상황 | 동작 |
+|---|---|
+| 파서가 확신 못 함 | 추측하지 않고 `⚠ 확인 필요` 표시, KPI 카드에 건수 노출 |
+| 사용자 파일이 이상함 | `ExcelParseError` → 원인이 담긴 안내 다이얼로그 |
+| 저장 실패 | 로그 기록 + 상태바 안내 (무성 실패 금지) |
+| 세션 파일 손상 | `.bak` 자동 복구, 실패 시 빈 세션 |
+| 처리되지 않은 예외 | 로그 + "작업은 자동 저장되어 있습니다" 안내, 로그 경로 표시 |
+| 잘못된 사용자 템플릿 | 예외 없이 원문 유지, 저장 시 안내 |
+
+로그 위치: `%LOCALAPPDATA%\ChuguiMaster\logs\chugui.log` (1MB × 3세대 회전)
+
+---
+
+## 12. 테스트 구성
+
+| 파일 | 개수 | 범위 |
+|---|---:|---|
+| `conftest.py` | — | 데이터 디렉터리 격리(`CHUGUI_DATA_DIR`), 오프스크린 Qt |
+| `test_amount.py` | 40 | 금액 파서 — v1의 6배 오류 회귀 방지 |
+| `test_messages.py` | 30 | 템플릿 크래시 방지 · 자리표시자 · 조사 문제 |
+| `test_names_relations.py` | 29 | 이름 추출 — v1의 글자 단위 삭제 버그 회귀 방지 |
+| `test_storage.py` | 28 | 원자적 쓰기 · 손상 복구 · v1 스키마 호환 |
+| `test_text_parser.py` | 28 | 자유 텍스트 통합 + 샘플 데이터 총액 고정 |
+| `test_ui_model.py` | 27 | 모델 · 프록시 · 정렬 (오프스크린) |
+| `test_excel_export.py` | 15 | 헤더 탐색 · CSV · 내보내기 |
+| `test_settlement_merge.py` | 14 | 정산식 + 병합 |
+| **합계** | **211** | |
+
+```bash
+python -m pytest
+```
+
+파싱·정산 로직은 Qt에 의존하지 않으므로 211개 중 184개가 GUI 없이 검증된다.
