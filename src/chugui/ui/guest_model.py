@@ -17,6 +17,7 @@ from enum import IntEnum
 from typing import Any
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, QObject, QSortFilterProxyModel, Qt, Signal
+from PySide6.QtGui import QBrush, QColor
 
 from chugui.models import (
     WARN_NO_AMOUNT,
@@ -94,6 +95,21 @@ class GuestTableModel(QAbstractTableModel):
         super().__init__(parent)
         self._guests: list[Guest] = []
         self._messages = message_service
+        self._review_brush: QBrush | None = None
+
+    def set_review_color(self, color: QColor | None) -> None:
+        """확인이 필요한 행에 깔 배경색. 테마가 바뀌면 창이 다시 알려준다.
+
+        경고를 '확인 필요' 열에만 적어두면 가로로 넓은 표에서 눈에 띄지 않는다.
+        행 전체를 은은하게 물들여야 스크롤 중에도 즉시 보인다.
+        """
+        self._review_brush = QBrush(color) if color is not None else None
+        if self._guests:
+            self.dataChanged.emit(
+                self.index(0, 0),
+                self.index(len(self._guests) - 1, len(Column) - 1),
+                [Qt.ItemDataRole.BackgroundRole],
+            )
 
     # ------------------------------------------------------------- 목록 접근
 
@@ -185,6 +201,8 @@ class GuestTableModel(QAbstractTableModel):
             return Qt.CheckState.Checked if guest.sent_thanks else Qt.CheckState.Unchecked
         if role == Qt.ItemDataRole.TextAlignmentRole:
             return self._alignment(column)
+        if role == Qt.ItemDataRole.BackgroundRole and guest.needs_review:
+            return self._review_brush
         if role == Qt.ItemDataRole.ToolTipRole:
             return self._tooltip(guest, column)
         return None
