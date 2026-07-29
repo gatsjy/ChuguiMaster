@@ -41,6 +41,8 @@ _MARKER_WORDS: frozenset[str] = frozenset(
 _MARKER_RE = re.compile(r"^(식권|식대|대인|성인|소인|어린이|아동|아이)\s*\d*$")
 
 _HANGUL_NAME_RE = re.compile(r"^[가-힣]{2,5}$")
+#: 사람 이름은 아니어도 단체명으로 쓸 수 있는 순한글 토큰.
+_HANGUL_ONLY_RE = re.compile(r"^[가-힣]{2,12}$")
 _PAREN_RE = re.compile(r"[（(]([^)）]*)[)）]")
 _SPLIT_RE = re.compile(r"[,/·&＆]+")
 _TOKEN_SPLIT_RE = re.compile(r"[\s\t]+")
@@ -104,6 +106,14 @@ def extract_names(line: str, fallback: str = "") -> tuple[list[str], list[str], 
             return parts, aliases, True
         if _is_name_like(token):
             return [token], aliases, True
+
+    # 2차 시도: 단체 명의로 낸 경우(예: 'OO교회사랑부', '청년회').
+    # 사람 이름은 아니지만 감사 인사를 보낼 대상 이름으로는 쓸 수 있다.
+    # '하객83' 보다는 훨씬 낫다. 확신은 못 하므로 성공으로 보고하지는 않는다.
+    for token in _TOKEN_SPLIT_RE.split(stripped):
+        token = token.strip().strip(".:;")
+        if token and _HANGUL_ONLY_RE.match(token) and not _is_marker(token):
+            return [token], aliases, False
 
     return ([fallback] if fallback else [], aliases, False)
 

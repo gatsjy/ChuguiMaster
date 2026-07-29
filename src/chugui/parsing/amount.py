@@ -19,6 +19,8 @@ import re
 from collections.abc import Iterator
 from typing import Any
 
+from chugui.parsing.tickets import strip_ticket_tokens
+
 # 선언 순서 = 크기 내림차순. 아래 _UNIT_RANK가 이 순서에 의존한다.
 _UNITS: dict[str, int] = {
     "억": 100_000_000,
@@ -35,7 +37,9 @@ _UNIT_RANK: dict[str, int] = {unit: rank for rank, unit in enumerate(_UNITS)}
 _NUM_UNIT_RE = re.compile(r"(\d[\d,]*)\s*(억|천만|백만|십만|만|천)?(원)?(?![가-힣A-Za-z])")
 
 # --- 금액이 아닌 숫자를 제거하기 위한 패턴들 -------------------------------
-_TICKET_RE = re.compile(r"(식권|식대|대인|성인|소인|어린이|아동|아이)\s*[:=]?\s*\d+\s*(명|장|개)?")
+# 식권 표기 제거는 :mod:`chugui.parsing.tickets` 가 담당한다.
+# 예전에는 이 파일이 자체 정규식을 들고 있었는데, 경계 조건이 없어서
+# '홍대인' 처럼 이름에 '대인'이 든 하객의 금액을 식권 수로 오인해 지워버렸다.
 _LEADING_INDEX_RE = re.compile(r"^\s*\d{1,3}\s*[.)\-:]?\s+")
 _DATE_RE = re.compile(r"\d{2,4}\s*[-./년]\s*\d{1,2}\s*[-./월]\s*\d{1,2}\s*일?")
 _TIME_RE = re.compile(r"\d{1,2}\s*:\s*\d{2}(\s*:\s*\d{2})?")
@@ -46,8 +50,9 @@ _ACCOUNT_RE = re.compile(r"\d{2,6}[-]\d{2,6}[-]\d{2,7}")
 def strip_non_amount_numbers(text: str) -> str:
     """금액으로 오인될 수 있는 숫자 표현을 미리 제거한다."""
     cleaned = str(text)
-    for pattern in (_ACCOUNT_RE, _PHONE_RE, _DATE_RE, _TIME_RE, _TICKET_RE):
+    for pattern in (_ACCOUNT_RE, _PHONE_RE, _DATE_RE, _TIME_RE):
         cleaned = pattern.sub(" ", cleaned)
+    cleaned = strip_ticket_tokens(cleaned)
     cleaned = _LEADING_INDEX_RE.sub(" ", cleaned)
     return cleaned
 
