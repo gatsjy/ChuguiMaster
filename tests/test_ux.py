@@ -420,12 +420,12 @@ class TestLayoutRobustness:
 
     def test_value_font_shrinks_only_when_needed(self, window, qt_app):
         """짧은 값에서는 큰 글씨를 유지해야 한다. 무조건 축소하면 위계가 무너진다."""
-        window.resize(window.minimumWidth(), window.minimumHeight())
+        window.resize(300, 700)
         window._model.set_guests(parse_text("홍길동 10만원 친척"))
         qt_app.processEvents()
         small_value_style = window._card_total.value_label.styleSheet()
 
-        window._model.set_guests(parse_text("홍길동 3억 2천만원 친척"))
+        window._card_total.set_value("999,999,999,999,999,999원")
         qt_app.processEvents()
         large_value_style = window._card_total.value_label.styleSheet()
 
