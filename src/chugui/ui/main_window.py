@@ -264,6 +264,7 @@ class MainWindow(QMainWindow):
         self._spin_adult.setToolTip("성인 1인 식대")
         self._spin_adult.setAccessibleName("대인 식대 단가")
         self._spin_adult.valueChanged.connect(self._on_meal_cost_changed)
+        self._spin_adult.editingFinished.connect(self._on_meal_cost_changed)
 
         self._spin_child = QSpinBox()
         self._spin_child.setRange(0, 300_000)
@@ -275,6 +276,7 @@ class MainWindow(QMainWindow):
         self._spin_child.setToolTip("어린이 1인 식대")
         self._spin_child.setAccessibleName("소인 식대 단가")
         self._spin_child.valueChanged.connect(self._on_meal_cost_changed)
+        self._spin_child.editingFinished.connect(self._on_meal_cost_changed)
 
         self._spin_adult.setMinimumWidth(170)
         self._spin_child.setMinimumWidth(170)
@@ -692,6 +694,7 @@ class MainWindow(QMainWindow):
         self._config.adult_meal = self._spin_adult.value()
         self._config.child_meal = self._spin_child.value()
         self._refresh_summary()
+        self._model.layoutChanged.emit()
         self._schedule_config_save()
 
     def _on_guests_changed(self) -> None:
