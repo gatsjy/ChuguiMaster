@@ -58,7 +58,15 @@ class AppConfig:
         config.child_meal = _int("child_meal", config.child_meal, 0, 1_000_000)
         config.window_width = _int("window_width", config.window_width, 900, 6000)
         config.window_height = _int("window_height", config.window_height, 600, 4000)
-        config.dark_mode = bool(data.get("dark_mode", config.dark_mode))
+        dark_mode = data.get("dark_mode", config.dark_mode)
+        if isinstance(dark_mode, bool):
+            config.dark_mode = dark_mode
+        elif isinstance(dark_mode, str):
+            normalized = dark_mode.strip().lower()
+            if normalized in {"true", "1", "yes", "on"}:
+                config.dark_mode = True
+            elif normalized in {"false", "0", "no", "off"}:
+                config.dark_mode = False
         return config
 
 

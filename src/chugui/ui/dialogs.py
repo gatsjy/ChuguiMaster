@@ -8,6 +8,8 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QHBoxLayout,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -234,3 +236,82 @@ class HelpDialog(QDialog):
         box.rejected.connect(self.accept)
         box.accepted.connect(self.accept)
         layout.addWidget(box)
+
+
+class SnapshotRestoreDialog(QDialog):
+    """저장된 시점 중 하나를 골라 되돌리는 창.
+
+    ``Ctrl+Z`` 는 방금 한 편집을 되돌린다. 이 창은 그보다 큰 단위,
+    즉 '비우기 전' / '덮어쓰기 전' 같은 **시점**으로 돌아가기 위한 것이다.
+    되돌아가면 지금 상태를 잃으므로, 복원 직전에도 스냅샷을 한 장 남긴다.
+    """
+
+    def __init__(self, snapshots: list, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("이전 시점으로 되돌리기")
+        self.resize(560, 460)
+        self._snapshots = snapshots
+        self._selected = None
+        self._build()
+
+    @property
+    def selected(self):
+        """사용자가 고른 스냅샷. 취소했으면 ``None``."""
+        return self._selected
+
+    def _build(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(10)
+
+        title = QLabel("저장된 시점")
+        title.setObjectName("sectionTitle")
+        layout.addWidget(title)
+
+        hint = QLabel(
+            "파괴적인 작업 직전과 5분마다 자동으로 저장된 시점입니다.\n"
+            "되돌려도 지금 상태는 새 시점으로 남으므로 다시 앞으로 올 수 있습니다."
+        )
+        hint.setObjectName("hint")
+        hint.setWordWrap(True)
+        hint.setTextFormat(Qt.TextFormat.PlainText)
+        layout.addWidget(hint)
+
+        self._list = QListWidget()
+        self._list.setAccessibleName("저장된 시점 목록")
+        self._list.setToolTip("되돌아갈 시점을 고르세요.")
+        for info in self._snapshots:
+            item = QListWidgetItem(f"{info.label}\n      {info.detail}")
+            item.setData(Qt.ItemDataRole.UserRole, info)
+            self._list.addItem(item)
+        self._list.itemDoubleClicked.connect(lambda _: self._accept_selection())
+        layout.addWidget(self._list, 1)
+
+        if not self._snapshots:
+            empty = QLabel("아직 저장된 시점이 없습니다.")
+            empty.setObjectName("emptyBody")
+            empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(empty)
+
+        box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        ok_button = box.button(QDialogButtonBox.StandardButton.Ok)
+        ok_button.setText("이 시점으로 되돌리기")
+        ok_button.setObjectName("primary")
+        ok_button.setEnabled(bool(self._snapshots))
+        box.button(QDialogButtonBox.StandardButton.Cancel).setText("취소")
+        box.accepted.connect(self._accept_selection)
+        box.rejected.connect(self.reject)
+        layout.addWidget(box)
+
+        if self._snapshots:
+            self._list.setCurrentRow(0)
+
+    def _accept_selection(self) -> None:
+        item = self._list.currentItem()
+        if item is None:
+            self.reject()
+            return
+        self._selected = item.data(Qt.ItemDataRole.UserRole)
+        self.accept()

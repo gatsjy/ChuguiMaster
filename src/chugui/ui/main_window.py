@@ -19,7 +19,14 @@ import logging
 from pathlib import Path
 
 from PySide6.QtCore import QModelIndex, Qt, QTimer
-from PySide6.QtGui import QAction, QCloseEvent, QColor, QKeySequence, QResizeEvent
+from PySide6.QtGui import (
+    QAction,
+    QCloseEvent,
+    QColor,
+    QKeySequence,
+    QResizeEvent,
+    QUndoStack,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -51,6 +58,7 @@ from chugui.services.exporter import export_to_excel
 from chugui.services.merge import merge_guests
 from chugui.services.messages import MessageService
 from chugui.services.settlement import Settlement, settle
+from chugui.storage.crash import CrashSentinel
 from chugui.storage.repositories import (
     AppConfig,
     ConfigRepository,
@@ -58,6 +66,7 @@ from chugui.storage.repositories import (
     SessionState,
     TemplateRepository,
 )
+from chugui.storage.snapshots import SnapshotStore
 from chugui.ui.delegates import (
     AttendanceDelegate,
     CopyButtonDelegate,
@@ -65,7 +74,7 @@ from chugui.ui.delegates import (
     TicketSpinDelegate,
     install_hover_tracking,
 )
-from chugui.ui.dialogs import HelpDialog, TemplateSettingsDialog
+from chugui.ui.dialogs import HelpDialog, SnapshotRestoreDialog, TemplateSettingsDialog
 from chugui.ui.guest_model import Column, GuestFilterProxy, GuestTableModel
 from chugui.ui.theme import Size, Space, build_stylesheet, palette_for
 from chugui.ui.widgets import DropTextEdit, EmptyState, MetricCard, ToastNotification
@@ -77,6 +86,13 @@ _AUTOSAVE_DEBOUNCE_MS = 600
 _CONFIG_DEBOUNCE_MS = 800
 
 _ALL_RELATIONS = "전체 관계"
+
+#: 주기적 스냅샷 간격. 사람 실수를 되돌릴 지점을 꾸준히 남긴다.
+_SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000
+#: 되돌리기 토스트가 떠 있는 시간. 실수를 알아차릴 시간을 넉넉히 준다.
+_UNDO_TOAST_MS = 9000
+#: 입력 미리보기 디바운스. 타이핑 중 매 글자 파싱하지 않는다.
+_PREVIEW_DEBOUNCE_MS = 300
 
 _EMPTY_NO_DATA = (
     "아직 취합된 내역이 없습니다",
@@ -103,6 +119,11 @@ class MainWindow(QMainWindow):
         self._config_repo = config_repo or ConfigRepository()
         self._session_repo = session_repo or SessionRepository()
         self._template_repo = template_repo or TemplateRepository()
+        self._snapshots = SnapshotStore()
+        self._sentinel = CrashSentinel()
+        self._crash_report = self._sentinel.arm()
+        #: 직전 파괴 연산 이전 상태. 토스트의 되돌리기 버튼이 이걸 되살린다.
+        self._undo_payload: dict | None = None
 
         self._config: AppConfig = self._config_repo.load()
         self._messages = MessageService(self._template_repo.load())
@@ -110,6 +131,11 @@ class MainWindow(QMainWindow):
         self._model = GuestTableModel(self._messages, self)
         self._proxy = GuestFilterProxy(self)
         self._proxy.setSourceModel(self._model)
+
+        # 셀 편집은 Ctrl+Z 로 되돌린다. 목록이 통째로 바뀌면 모델이 스택을 비운다.
+        self._undo_stack = QUndoStack(self)
+        self._undo_stack.setUndoLimit(200)
+        self._model.set_undo_stack(self._undo_stack)
 
         self._autosave_timer = QTimer(self)
         self._autosave_timer.setSingleShot(True)
@@ -120,6 +146,16 @@ class MainWindow(QMainWindow):
         self._config_timer.setSingleShot(True)
         self._config_timer.setInterval(_CONFIG_DEBOUNCE_MS)
         self._config_timer.timeout.connect(self._save_config)
+
+        self._preview_timer = QTimer(self)
+        self._preview_timer.setSingleShot(True)
+        self._preview_timer.setInterval(_PREVIEW_DEBOUNCE_MS)
+        self._preview_timer.timeout.connect(self._update_preview)
+
+        self._snapshot_timer = QTimer(self)
+        self._snapshot_timer.setInterval(_SNAPSHOT_INTERVAL_MS)
+        self._snapshot_timer.timeout.connect(lambda: self._capture_snapshot("자동"))
+        self._snapshot_timer.start()
 
         self.setWindowTitle("ChuguiMaster — 축의금 정산 & 감사 메시지")
         self.setMinimumSize(Size.WINDOW_MIN_WIDTH, Size.WINDOW_MIN_HEIGHT)
@@ -136,7 +172,6 @@ class MainWindow(QMainWindow):
         self._apply_toast_palette()
 
         self._model.guestsChanged.connect(self._on_guests_changed)
-        self._model.dataChanged.connect(lambda *_: self._on_guests_changed())
         self._proxy.rowsInserted.connect(self._update_empty_state)
         self._proxy.rowsRemoved.connect(self._update_empty_state)
         self._proxy.modelReset.connect(self._update_empty_state)
@@ -194,6 +229,14 @@ class MainWindow(QMainWindow):
         btn_templates.setAccessibleName("인사말 템플릿 설정")
         btn_templates.clicked.connect(self._open_template_settings)
 
+        btn_restore = QPushButton("이전 시점 복구")
+        btn_restore.setObjectName("ghost")
+        btn_restore.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_restore.setToolTip("자동 저장된 시점 중 하나를 골라 되돌립니다.")
+        btn_restore.setAccessibleName("이전 시점 복구")
+        btn_restore.clicked.connect(self._open_restore_dialog)
+        self._btn_restore = btn_restore
+
         btn_help = QPushButton("입력 가이드")
         btn_help.setObjectName("ghost")
         btn_help.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -205,6 +248,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(version)
         layout.addStretch()
         layout.addWidget(self._btn_theme)
+        layout.addWidget(btn_restore)
         layout.addWidget(btn_templates)
         layout.addWidget(btn_help)
         return layout
@@ -356,8 +400,17 @@ class MainWindow(QMainWindow):
         )
         self._input.setToolTip("자유 형식으로 붙여넣으면 됩니다. 양식을 맞출 필요 없습니다.")
         self._input.setAccessibleName("축의금 명단 입력")
-        self._input.textChanged.connect(self._schedule_autosave)
+        self._input.textChanged.connect(self._on_input_changed)
         self._input.fileDropped.connect(self._load_file)
+
+        # 파싱을 누르기 전에도 결과를 알려 준다.
+        # 틀린 줄을 찾으려고 표까지 갔다 오는 왕복을 없앤다.
+        self._preview = QLabel("")
+        self._preview.setObjectName("preview")
+        self._preview.setTextFormat(Qt.TextFormat.PlainText)
+        self._preview.setAccessibleName("입력 미리보기")
+        self._preview.setToolTip("입력한 내용을 실시간으로 미리 해석한 결과입니다.")
+        self._preview.hide()
 
         btn_parse = QPushButton("자동 취합 및 파싱")
         btn_parse.setObjectName("primary")
@@ -365,6 +418,13 @@ class MainWindow(QMainWindow):
         btn_parse.setToolTip("입력한 텍스트를 표로 변환합니다.  (Ctrl+Enter)")
         btn_parse.setAccessibleName("자동 취합 및 파싱")
         btn_parse.clicked.connect(self._handle_parse)
+
+        self._btn_append = QPushButton("기존 목록에 추가")
+        self._btn_append.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_append.setToolTip("기존 목록을 지우지 않고 입력한 줄만 이어붙입니다.  (Ctrl+Shift+Enter)")
+        self._btn_append.setAccessibleName("기존 목록에 추가")
+        self._btn_append.clicked.connect(self._handle_append)
+        self._btn_append.setEnabled(False)
 
         btn_file = QPushButton("엑셀 · CSV 불러오기")
         btn_file.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -394,7 +454,9 @@ class MainWindow(QMainWindow):
         layout.addWidget(heading)
         layout.addWidget(hint_box)
         layout.addWidget(self._input, 1)
+        layout.addWidget(self._preview)
         layout.addWidget(btn_parse)
+        layout.addWidget(self._btn_append)
         layout.addWidget(btn_file)
         layout.addLayout(bottom)
         return card
@@ -522,9 +584,18 @@ class MainWindow(QMainWindow):
         return table
 
     def _build_shortcuts(self) -> None:
+        undo_action = self._undo_stack.createUndoAction(self, "실행 취소")
+        undo_action.setShortcut(QKeySequence.StandardKey.Undo)
+        redo_action = self._undo_stack.createRedoAction(self, "다시 실행")
+        redo_action.setShortcut(QKeySequence.StandardKey.Redo)
+        for action in (undo_action, redo_action):
+            action.triggered.connect(self._announce_undo_state)
+            self.addAction(action)
+
         for shortcut, slot, name in (
             (QKeySequence("Ctrl+Return"), self._handle_parse, "파싱"),
             (QKeySequence.StandardKey.Save, self._handle_export, "내보내기"),
+            (QKeySequence("Ctrl+Shift+Return"), self._handle_append, "추가"),
             (QKeySequence.StandardKey.Find, lambda: self._search.setFocus(), "검색"),
         ):
             action = QAction(name, self)
@@ -552,7 +623,7 @@ class MainWindow(QMainWindow):
 
     def _apply_toast_palette(self) -> None:
         palette = palette_for(self._config.dark_mode)
-        self._toast.apply_palette(palette.surface, palette.text, palette.border_strong)
+        self._toast.apply_palette(palette.surface, palette.text, palette.border_strong, palette.accent)
 
     def _toggle_theme(self) -> None:
         self._config.dark_mode = not self._config.dark_mode
@@ -572,6 +643,7 @@ class MainWindow(QMainWindow):
             self._toast.show_message(f"이전 작업을 복구했습니다 · {len(state.guests)}건")
         self._refresh_summary()
         self._update_empty_state()
+        self._report_previous_crash()
 
     def _handle_parse(self) -> None:
         text = self._input.toPlainText().strip()
@@ -585,15 +657,22 @@ class MainWindow(QMainWindow):
             self._toast.show_message("인식할 수 있는 내용이 없습니다.")
             return
 
-        if self._model.guests and not self._confirm_replace(len(guests)):
+        replacing = bool(self._model.guests)
+        if replacing and not self._confirm_replace(len(guests)):
             return
+
+        if replacing:
+            self._begin_destructive("파싱 덮어쓰기 전")
 
         self._model.set_guests(guests)
         review = sum(1 for guest in guests if guest.needs_review)
         message = f"{len(guests)}건 취합 완료"
         if review:
             message += f" · 확인 필요 {review}건"
-        self._toast.show_message(message)
+        if replacing:
+            self._offer_undo(message)
+        else:
+            self._toast.show_message(message)
 
     def _confirm_replace(self, incoming_count: int) -> bool:
         answer = QMessageBox.question(
@@ -645,18 +724,20 @@ class MainWindow(QMainWindow):
             self._toast.show_message("가져올 데이터가 없습니다.")
             return
 
+        self._begin_destructive("파일 병합 전")
         result = merge_guests(self._model.guests, incoming, skip_exact_duplicates=False)
         self._model.set_guests(result.guests)
 
-        self._toast.show_message(f"{path.name} · {result.summary}")
+        self._offer_undo(f"{path.name} · {result.summary}")
         if result.duplicate_count:
             self._chk_review.setChecked(True)
 
     def _handle_sample(self) -> None:
+        self._begin_destructive("샘플 불러오기 전")
         self._input.setPlainText(SAMPLE_TEXT)
         guests = parse_text(SAMPLE_TEXT)
         self._model.set_guests(guests)
-        self._toast.show_message(f"샘플 {len(guests)}건을 불러왔습니다.")
+        self._offer_undo(f"샘플 {len(guests)}건을 불러왔습니다.")
 
     def _handle_clear(self) -> None:
         if not self._model.guests and not self._input.toPlainText():
@@ -670,10 +751,13 @@ class MainWindow(QMainWindow):
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
+
+        # 지우기 전에 되돌릴 지점을 남긴다. 세션 파일은 지워도 스냅샷은 남는다.
+        self._begin_destructive("전체 비우기 전")
         self._input.clear()
         self._model.clear()
         self._session_repo.clear()
-        self._toast.show_message("모두 지웠습니다.")
+        self._offer_undo("모두 지웠습니다.")
 
     # ------------------------------------------------------------ 상호작용
 
@@ -694,12 +778,14 @@ class MainWindow(QMainWindow):
         self._config.adult_meal = self._spin_adult.value()
         self._config.child_meal = self._spin_child.value()
         self._refresh_summary()
-        self._model.layoutChanged.emit()
         self._schedule_config_save()
 
     def _on_guests_changed(self) -> None:
         self._refresh_summary()
         self._update_empty_state()
+        if hasattr(self, "_btn_append"):
+            # 붙일 대상이 있을 때만 '추가' 가 의미를 갖는다.
+            self._btn_append.setEnabled(bool(self._model.guests))
         self._schedule_autosave()
 
     def _open_template_settings(self) -> None:
@@ -788,6 +874,136 @@ class MainWindow(QMainWindow):
             parts.append(f"확인 필요 {result.review_count}건")
         self.statusBar().showMessage("   ·   ".join(parts))
 
+    def _open_restore_dialog(self) -> None:
+        """저장된 시점 목록에서 하나를 골라 되돌린다."""
+        infos = self._snapshots.list_snapshots()
+        dialog = SnapshotRestoreDialog(infos, self)
+        if dialog.exec() != int(SnapshotRestoreDialog.DialogCode.Accepted):
+            return
+
+        info = dialog.selected
+        if info is None:
+            return
+
+        payload = self._snapshots.load(info.path)
+        if payload is None:
+            QMessageBox.warning(self, "복구 실패", "해당 시점을 읽을 수 없습니다.")
+            return
+
+        # 되돌아가기 전에 지금 상태도 시점으로 남긴다. 복구 자체를 취소할 수 있어야 한다.
+        self._begin_destructive("복구 전")
+        self._restore_payload(payload)
+        self._offer_undo(f"{info.label} 시점으로 되돌렸습니다 · {info.guest_count}건")
+
+    def _report_previous_crash(self) -> None:
+        """지난 실행이 비정상 종료였으면 알리고, 작업이 살아 있음을 확인시킨다."""
+        if not self._crash_report.crashed:
+            return
+        count = len(self._model.guests)
+        detail = f"마지막 작업 {count}건을 복구했습니다." if count else "복구할 작업 내용은 없었습니다."
+        self.statusBar().showMessage(f"{self._crash_report.message} {detail}", 12000)
+        self._toast.show_action(
+            f"비정상 종료가 감지되었습니다 · {detail}",
+            "이전 시점 보기",
+            self._open_restore_dialog,
+            _UNDO_TOAST_MS,
+        )
+
+    def _announce_undo_state(self) -> None:
+        """되돌리기 결과를 사용자에게 알린다. 조용히 값만 바뀌면 알아채기 어렵다."""
+        self.statusBar().showMessage("편집을 되돌렸습니다.  (Ctrl+Y 로 다시 실행)", 4000)
+
+    def _on_input_changed(self) -> None:
+        self._schedule_autosave()
+        self._preview_timer.start()
+
+    def _update_preview(self) -> None:
+        """입력창 아래에 해석 결과를 요약해 보여 준다."""
+        text = self._input.toPlainText().strip()
+        if not text:
+            self._preview.hide()
+            return
+
+        guests = parse_text(text)
+        if not guests:
+            self._preview.setText("인식할 수 있는 줄이 없습니다.")
+            self._preview.show()
+            return
+
+        total = sum(guest.amount for guest in guests)
+        review = sum(1 for guest in guests if guest.needs_review)
+        summary = f"미리보기 · {len(guests)}건 · {total:,}원"
+        if review:
+            summary += f" · 확인 필요 {review}건"
+        self._preview.setText(summary)
+        self._preview.show()
+
+    def _handle_append(self) -> None:
+        """기존 목록을 지우지 않고 입력한 줄만 이어붙인다.
+
+        구버전과 v2 초안은 파싱이 곧 전체 교체였다. 명단을 나눠서 적는 사람은
+        새 줄 몇 개를 넣으려고 전체를 다시 붙여넣어야 했다.
+        """
+        text = self._input.toPlainText().strip()
+        if not text:
+            self._toast.show_message("추가할 텍스트를 먼저 입력해 주세요.")
+            self._input.setFocus()
+            return
+
+        incoming = parse_text(text)
+        if not incoming:
+            self._toast.show_message("인식할 수 있는 내용이 없습니다.")
+            return
+
+        self._begin_destructive("목록 추가 전")
+        result = merge_guests(self._model.guests, incoming, skip_exact_duplicates=True)
+        self._model.set_guests(result.guests)
+        self._offer_undo(f"{result.summary} · 총 {len(result.guests)}건")
+        if result.duplicate_count:
+            self._chk_review.setChecked(True)
+
+    # ------------------------------------------------- 스냅샷 · 되돌리기
+
+    def _current_payload(self) -> dict:
+        """지금 화면 상태를 직렬화한 dict."""
+        return SessionState(
+            guests=self._model.guests, raw_text=self._input.toPlainText()
+        ).to_dict()
+
+    def _capture_snapshot(self, reason: str) -> None:
+        """되돌릴 수 있는 시점을 하나 남긴다. 목록이 비어 있으면 건너뛴다."""
+        self._snapshots.capture(self._current_payload(), reason)
+
+    def _begin_destructive(self, reason: str) -> None:
+        """파괴 연산 직전에 부른다. 스냅샷과 즉시 되돌리기 대상을 함께 준비한다."""
+        payload = self._current_payload()
+        self._undo_payload = payload if payload.get("guests") else None
+        self._snapshots.capture(payload, reason)
+
+    def _offer_undo(self, message: str) -> None:
+        """되돌리기 버튼이 달린 토스트. 되돌릴 것이 없으면 일반 토스트."""
+        if self._undo_payload is None:
+            self._toast.show_message(message)
+            return
+        self._toast.show_action(message, "되돌리기", self._undo_last, _UNDO_TOAST_MS)
+
+    def _undo_last(self) -> None:
+        payload = self._undo_payload
+        if payload is None:
+            return
+        self._undo_payload = None
+        self._restore_payload(payload)
+        self._toast.show_message("되돌렸습니다.")
+
+    def _restore_payload(self, payload: dict) -> None:
+        """스냅샷/되돌리기 공용 복원 경로."""
+        state = SessionState.from_dict(payload)
+        self._input.blockSignals(True)
+        self._input.setPlainText(state.raw_text)
+        self._input.blockSignals(False)
+        self._model.set_guests(state.guests)
+        self._save_session()
+
     # ------------------------------------------------------------ 영속화
 
     def _schedule_autosave(self) -> None:
@@ -853,7 +1069,10 @@ class MainWindow(QMainWindow):
         # 디바운스 타이머가 아직 돌고 있을 수 있으므로 즉시 저장한다.
         self._autosave_timer.stop()
         self._config_timer.stop()
+        self._snapshot_timer.stop()
+        self._preview_timer.stop()
         self._save_session()
         self._save_config()
+        self._sentinel.disarm()
         logger.info("애플리케이션 종료")
         super().closeEvent(event)

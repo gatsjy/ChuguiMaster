@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, Qt, QTimer, Signal
@@ -11,6 +12,7 @@ from PySide6.QtWidgets import (
     QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QSizePolicy,
     QTextEdit,
     QVBoxLayout,
@@ -37,9 +39,19 @@ class ToastNotification(QFrame):
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(Space.LG, Space.SM + 2, Space.LG, Space.SM + 2)
+        layout.setSpacing(Space.MD)
         self._label = QLabel("")
         self._label.setObjectName("toastText")
         layout.addWidget(self._label)
+
+        self._action = QPushButton("")
+        self._action.setObjectName("toastAction")
+        self._action.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._action.clicked.connect(self._on_action_clicked)
+        self._action.hide()
+        layout.addWidget(self._action)
+
+        self._action_callback: Callable[[], None] | None = None
 
         self._opacity = QGraphicsOpacityEffect(self)
         self._opacity.setOpacity(0.0)
@@ -57,15 +69,56 @@ class ToastNotification(QFrame):
 
         self.hide()
 
-    def apply_palette(self, background: str, foreground: str, border: str) -> None:
+    def apply_palette(self, background: str, foreground: str, border: str, accent: str = "") -> None:
+        accent_color = accent or foreground
         self.setStyleSheet(
             f"QFrame#toast {{ background-color: {background}; border: 1px solid {border};"
             f" border-radius: 10px; }}"
             f" QLabel#toastText {{ color: {foreground}; font-size: 13px; font-weight: 700;"
             f" background: transparent; border: none; }}"
+            f" QPushButton#toastAction {{ color: {accent_color}; background: transparent;"
+            f" border: 1px solid {accent_color}; border-radius: 6px; padding: 4px 12px;"
+            f" font-size: 12px; font-weight: 700; min-height: 22px; }}"
+            f" QPushButton#toastAction:hover {{ color: {background};"
+            f" background-color: {accent_color}; }}"
         )
 
     def show_message(self, message: str, duration_ms: int = 2600) -> None:
+        """단순 알림. 클릭을 통과시켜 아래 위젯을 가리지 않는다."""
+        self._action_callback = None
+        self._action.hide()
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self._present(message, duration_ms)
+
+    def show_action(
+        self,
+        message: str,
+        action_text: str,
+        callback: Callable[[], None],
+        duration_ms: int = 9000,
+    ) -> None:
+        """되돌리기처럼 곧바로 취소할 수 있는 알림.
+
+        파괴 연산 직후에만 쓴다. 사용자가 실수를 알아차릴 시간을 주는 것이 목적이라
+        표시 시간이 일반 알림보다 길다.
+        """
+        self._action_callback = callback
+        self._action.setText(action_text)
+        self._action.setAccessibleName(action_text)
+        self._action.show()
+        # 버튼을 눌러야 하므로 이때만 마우스 이벤트를 받는다.
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+        self._present(message, duration_ms)
+
+    def _on_action_clicked(self) -> None:
+        callback = self._action_callback
+        self._action_callback = None
+        self._timer.stop()
+        self._start_fade_out()
+        if callback is not None:
+            callback()
+
+    def _present(self, message: str, duration_ms: int) -> None:
         self._label.setText(message)
         self.adjustSize()
         self.reposition()

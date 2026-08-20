@@ -15,6 +15,7 @@ from chugui.models import (
     renumber,
 )
 from chugui.parsing.amount import extract_amount
+from chugui.parsing.columns import parse_columns
 from chugui.parsing.names import extract_names, format_display_name
 from chugui.parsing.relations import guess_relation
 from chugui.parsing.tickets import adult_tickets as parse_adult_tickets
@@ -47,8 +48,19 @@ def parse_line(line: str, line_number: int = 1) -> Guest | None:
     if not text or _COMMENT_RE.match(text):
         return None
 
-    names, aliases, name_found = extract_names(text, fallback=f"하객{line_number}")
-    amount, candidates = extract_amount(text)
+    # 엑셀/시트에서 복사한 표 형식이면 열 단위로 읽는다.
+    # 이름은 이름 열에서만 고르고, 금액은 금액 열에서만 읽고, 나머지는 소속이 된다.
+    layout = parse_columns(text)
+    name_source = layout.name_field if layout else text
+    belong = layout.belong if layout else ""
+
+    names, aliases, name_found = extract_names(name_source, fallback=f"하객{line_number}")
+
+    if layout is not None and layout.amount_index is not None:
+        amount, candidates = extract_amount(layout.amount_field)
+    else:
+        amount, candidates = extract_amount(text)
+
     attendance = _resolve_attendance(text)
 
     stated_adult = parse_adult_tickets(text)
@@ -68,11 +80,12 @@ def parse_line(line: str, line_number: int = 1) -> Guest | None:
         names=names,
         aliases=aliases,
         amount=amount,
-        relation=guess_relation(text),
+        relation=guess_relation(belong, name_source, text),
         attendance=attendance,
         payment=Payment.TRANSFER if _TRANSFER_RE.search(text) else Payment.CASH,
         adult_tickets=adult_tickets,
         child_tickets=child_tickets,
+        belong=belong,
         raw=text,
         source=Source.TEXT,
         guest_id=line_number,

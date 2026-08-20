@@ -310,6 +310,20 @@ class TestReviewRowHighlight:
         assert dark_brush.color() != light_brush.color()
 
 
+class TestAutosaveDiscipline:
+    """표시만 바뀐 경우에는 개인정보가 든 세션 파일을 다시 쓰지 않는다."""
+
+    def test_theme_repaint_does_not_schedule_session_save(self, loaded_window):
+        loaded_window._autosave_timer.stop()
+        loaded_window._model.set_review_color(QColor("#fff7ed"))
+        assert not loaded_window._autosave_timer.isActive()
+
+    def test_message_refresh_does_not_schedule_session_save(self, loaded_window):
+        loaded_window._autosave_timer.stop()
+        loaded_window._model.refresh_messages()
+        assert not loaded_window._autosave_timer.isActive()
+
+
 class TestAccessibility:
     """스크린 리더와 키보드 사용자를 위한 최소 요건."""
 

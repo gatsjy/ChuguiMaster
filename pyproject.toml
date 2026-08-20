@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chugui-master"
-version = "2.0.0"
+version = "2.1.0"
 description = "축의금 스마트 취합 & 감사 메시지 생성기"
 readme = "README.md"
 requires-python = ">=3.10"

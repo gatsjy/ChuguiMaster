@@ -3,9 +3,22 @@
 구버전은 dict를 선언 순서대로 순회하며 **처음 일치한 키워드**를 채택했다.
 그래서 "대학병원"이 학교로, "고등학교 동창 목사님"이 상황에 따라 뒤집혔다.
 여기서는 **가장 긴 키워드가 이긴다**(longest-match wins). 더 구체적인 단서를 신뢰한다.
+
+여기에 규칙이 하나 더 있다. **겹치는 매치는 먼저 시작한 쪽이 이긴다.**
+
+    '여명교회사랑부'
+        '교회' @2  (종교)
+        '회사' @3  (직장)  <- 여명교[회사]랑부. 단어 경계를 가로지른 우연
+
+두 매치가 문자 위치에서 겹치면 둘 중 하나는 반드시 우연이다. 한국어 합성어는
+의미의 머리가 앞에 오므로 먼저 시작한 쪽을 신뢰한다. 이 규칙이 없으면
+길이가 같아(둘 다 2자) tie-break 순서로 갈려 교회가 직장으로 분류됐다.
+겹치지 않는 매치끼리는 종전대로 최장 일치가 이긴다('대학병원'은 직장).
 """
 
 from __future__ import annotations
+
+from dataclasses import dataclass
 
 from chugui.models import Relation
 
@@ -48,24 +61,73 @@ _TIE_BREAK: tuple[Relation, ...] = (
 )
 
 
+@dataclass(frozen=True)
+class _Match:
+    """해당 위치에서 걸린 키워드 하나."""
+
+    start: int
+    end: int
+    keyword: str
+    relation: Relation
+    priority: int  # _TIE_BREAK 상의 순서. 작을수록 우선.
+
+    @property
+    def length(self) -> int:
+        return len(self.keyword)
+
+
+def _find_matches(haystack: str) -> list[_Match]:
+    """모든 관계 키워드의 모든 출현 위치를 모은다."""
+    matches: list[_Match] = []
+    for priority, relation in enumerate(_TIE_BREAK):
+        for keyword in KEYWORDS[relation]:
+            start = haystack.find(keyword)
+            while start != -1:
+                matches.append(
+                    _Match(start, start + len(keyword), keyword, relation, priority)
+                )
+                start = haystack.find(keyword, start + 1)
+    return matches
+
+
+def _drop_overlapping_artifacts(matches: list[_Match]) -> list[_Match]:
+    """겹치는 매치 중 나중에 시작한 쪽을 버린다.
+
+    같은 관계끼리 겹치는 것(삼촌/외삼촌)은 어차피 결과가 같으므로 상관없다.
+    문제는 관계가 다른데 겹치는 경우이고, 그때 뒤쪽은 우연히 만들어진 조각이다.
+    """
+    ordered = sorted(matches, key=lambda m: (m.start, -m.length))
+    kept: list[_Match] = []
+    for candidate in ordered:
+        overlaps_earlier = any(
+            candidate.start < accepted.end and accepted.start < candidate.end
+            for accepted in kept
+            if accepted.relation is not candidate.relation
+        )
+        if not overlaps_earlier:
+            kept.append(candidate)
+    return kept
+
+
 def guess_relation(*texts: str) -> Relation:
     """소속/비고/원문 등에서 관계를 추정한다.
 
-    가장 긴 키워드가 이기고, 길이가 같으면 :data:`_TIE_BREAK` 순서를 따른다.
+    1. 겹치는 매치는 먼저 시작한 쪽만 남긴다(경계를 가로지른 우연 제거).
+    2. 남은 것 중 가장 긴 키워드가 이긴다.
+    3. 길이도 같으면 :data:`_TIE_BREAK` 순서를 따른다.
+
     아무 단서도 없으면 :attr:`Relation.OTHER`.
     """
     haystack = " ".join(str(text or "") for text in texts)
     if not haystack.strip():
         return Relation.OTHER
 
-    best_relation = Relation.OTHER
-    best_length = 0
-    for relation in _TIE_BREAK:
-        for keyword in KEYWORDS[relation]:
-            if keyword in haystack and len(keyword) > best_length:
-                best_relation = relation
-                best_length = len(keyword)
-    return best_relation
+    survivors = _drop_overlapping_artifacts(_find_matches(haystack))
+    if not survivors:
+        return Relation.OTHER
+
+    best = min(survivors, key=lambda m: (-m.length, m.priority, m.start))
+    return best.relation
 
 
 def all_keywords() -> frozenset[str]:

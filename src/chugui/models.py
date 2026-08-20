@@ -196,9 +196,23 @@ class Guest:
 
         def _int(key: str, default: int = 0) -> int:
             try:
-                return int(data.get(key, default) or default)
+                return max(0, int(data.get(key, default) or default))
             except (TypeError, ValueError):
                 return default
+
+        def _bool(key: str, default: bool = False) -> bool:
+            value = data.get(key, default)
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, (int, float)):
+                return value != 0
+            if isinstance(value, str):
+                normalized = value.strip().lower()
+                if normalized in {"true", "1", "yes", "y", "on", "완료"}:
+                    return True
+                if normalized in {"false", "0", "no", "n", "off", "미완료", "미발송", ""}:
+                    return False
+            return default
 
         name = str(data.get("name") or "").strip()
         names = [str(n).strip() for n in (data.get("names") or []) if str(n).strip()]
@@ -221,7 +235,7 @@ class Guest:
             child_tickets=_int("child_tickets"),
             belong=str(data.get("belong") or ""),
             note=str(data.get("note") or ""),
-            sent_thanks=bool(data.get("sent_thanks", False)),
+            sent_thanks=_bool("sent_thanks"),
             raw=str(data.get("raw") or ""),
             source=Source.coerce(data.get("source")),
             warnings=[str(w) for w in (data.get("warnings") or [])],

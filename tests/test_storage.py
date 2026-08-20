@@ -79,6 +79,15 @@ class TestConfigRepository:
         assert (loaded.adult_meal, loaded.child_meal, loaded.dark_mode) == (55_000, 30_000, False)
 
     @pytest.mark.parametrize(
+        ("stored", "expected"),
+        [("false", False), ("0", False), ("off", False), ("true", True), ("1", True), ("on", True)],
+    )
+    def test_string_boolean_is_coerced_safely(self, stored, expected):
+        repo = ConfigRepository()
+        repo.path.write_text(json.dumps({"dark_mode": stored}), encoding="utf-8")
+        assert repo.load().dark_mode is expected
+
+    @pytest.mark.parametrize(
         "payload",
         [{"adult_meal": "이상한값"}, {"adult_meal": -100}, {"adult_meal": 99_999_999}, "문자열", None],
     )
@@ -146,6 +155,22 @@ class TestSessionRepository:
         guest = repo.load().guests[0]
         assert guest.attendance is Attendance.ABSENT
         assert guest.sent_thanks is True
+
+    @pytest.mark.parametrize(
+        ("stored", "expected"),
+        [("false", False), ("0", False), ("미발송", False), ("true", True), ("1", True), ("완료", True)],
+    )
+    def test_string_sent_state_is_coerced_safely(self, stored, expected):
+        guest = Guest.from_dict({"name": "테스트", "sent_thanks": stored})
+        assert guest.sent_thanks is expected
+
+    def test_negative_numbers_from_session_are_clamped(self):
+        guest = Guest.from_dict(
+            {"name": "테스트", "amount": -100_000, "adult_tickets": -3, "child_tickets": -1}
+        )
+        assert guest.amount == 0
+        assert guest.adult_tickets == 0
+        assert guest.child_tickets == 0
 
     @pytest.mark.parametrize("payload", ["[]", "null", "{}", "깨진 json", '{"guests": "문자열"}'])
     def test_garbage_yields_empty_session(self, payload):

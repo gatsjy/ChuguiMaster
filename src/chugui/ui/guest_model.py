@@ -17,7 +17,7 @@ from enum import IntEnum
 from typing import Any
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, QObject, QSortFilterProxyModel, Qt, Signal
-from PySide6.QtGui import QBrush, QColor
+from PySide6.QtGui import QBrush, QColor, QUndoStack
 
 from chugui.models import (
     WARN_NO_AMOUNT,
@@ -29,6 +29,7 @@ from chugui.models import (
     renumber,
 )
 from chugui.services.messages import MessageService
+from chugui.ui.commands import EditGuestCommand
 
 # 델리게이트가 셀에 담긴 Guest를 직접 꺼내 쓰기 위한 사용자 역할.
 GUEST_ROLE = int(Qt.ItemDataRole.UserRole) + 1
@@ -96,6 +97,7 @@ class GuestTableModel(QAbstractTableModel):
         self._guests: list[Guest] = []
         self._messages = message_service
         self._review_brush: QBrush | None = None
+        self._undo_stack: QUndoStack | None = None
 
     def set_review_color(self, color: QColor | None) -> None:
         """확인이 필요한 행에 깔 배경색. 테마가 바뀌면 창이 다시 알려준다.
@@ -120,10 +122,17 @@ class GuestTableModel(QAbstractTableModel):
     def guest_at(self, row: int) -> Guest | None:
         return self._guests[row] if 0 <= row < len(self._guests) else None
 
+    def set_undo_stack(self, stack: QUndoStack | None) -> None:
+        self._undo_stack = stack
+
     def set_guests(self, guests: Sequence[Guest]) -> None:
         self.beginResetModel()
         self._guests = renumber(list(guests))
         self.endResetModel()
+        # 목록이 통째로 바뀌면 이전 행 번호가 가리키던 대상이 사라진다.
+        # 되돌리기 이력을 그대로 두면 엉뚱한 행을 고치게 된다.
+        if self._undo_stack is not None:
+            self._undo_stack.clear()
         self.guestsChanged.emit()
 
     def clear(self) -> None:
@@ -145,10 +154,7 @@ class GuestTableModel(QAbstractTableModel):
         guest = self.guest_at(row)
         if guest is None or guest.sent_thanks == sent:
             return
-        guest.sent_thanks = sent
-        index = self.index(row, Column.SENT)
-        self.dataChanged.emit(index, index, [Qt.ItemDataRole.CheckStateRole])
-        self.guestsChanged.emit()
+        self._push_or_commit(row, Column.SENT, guest.sent_thanks, sent)
 
     # ------------------------------------------------- QAbstractTableModel
 
@@ -218,20 +224,58 @@ class GuestTableModel(QAbstractTableModel):
         column = Column(index.column())
 
         if role == Qt.ItemDataRole.CheckStateRole and column is Column.SENT:
-            guest.sent_thanks = Qt.CheckState(value) == Qt.CheckState.Checked
-            self.dataChanged.emit(index, index, [role])
-            self.guestsChanged.emit()
-            return True
+            new_value = Qt.CheckState(value) == Qt.CheckState.Checked
+            if new_value == guest.sent_thanks:
+                return True
+            return self._push_or_commit(index.row(), column, guest.sent_thanks, new_value)
 
         if role != Qt.ItemDataRole.EditRole or column not in _EDITABLE:
             return False
 
-        if not self._apply_edit(guest, column, value):
+        old_value = self._edit_value(guest, column)
+        return self._push_or_commit(index.row(), column, old_value, value)
+
+    def _push_or_commit(self, row: int, column: Column, old_value: Any, new_value: Any) -> bool:
+        """되돌리기 스택이 있으면 명령으로, 없으면 바로 적용한다."""
+        if self._undo_stack is None:
+            return self.commit_edit(row, column, new_value)
+
+        # 스택 없이 미리 한 번 시험해 볼 방법이 없으므로, 적용 실패는 명령 안에서 흡수된다.
+        # 대신 명백히 거부될 값(빈 이름 등)은 여기서 걸러 빈 명령이 쌓이지 않게 한다.
+        guest = self.guest_at(row)
+        if guest is None or not self._is_acceptable(column, new_value):
+            return False
+
+        label = f"{HEADERS.get(column, '')} 변경"
+        self._undo_stack.push(EditGuestCommand(self, row, column, old_value, new_value, label))
+        return True
+
+    @staticmethod
+    def _is_acceptable(column: Column, value: Any) -> bool:
+        """명령으로 만들 가치가 있는 값인지 가볍게 확인한다."""
+        if column is Column.NAME:
+            return bool(str(value or "").strip())
+        if column in (Column.ADULT_TICKETS, Column.CHILD_TICKETS):
+            try:
+                int(value)
+            except (TypeError, ValueError):
+                return False
+        return True
+
+    def commit_edit(self, row: int, column: Column, value: Any) -> bool:
+        """실제로 값을 쓰고 화면을 갱신한다. 되돌리기/다시하기가 공유하는 경로."""
+        guest = self.guest_at(row)
+        if guest is None:
+            return False
+
+        if column is Column.SENT:
+            guest.sent_thanks = bool(value)
+        elif not self._apply_edit(guest, column, value):
             return False
 
         # 편집 결과에 따라 경고 상태가 달라질 수 있으므로 행 전체를 갱신한다.
-        left = self.index(index.row(), 0)
-        right = self.index(index.row(), len(Column) - 1)
+        left = self.index(row, 0)
+        right = self.index(row, len(Column) - 1)
         self.dataChanged.emit(left, right)
         self.guestsChanged.emit()
         return True

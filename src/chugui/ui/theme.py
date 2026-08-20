@@ -219,6 +219,15 @@ def build_stylesheet(palette: Palette) -> str:
     }}
     QLabel#cardCaption {{ font-size: {FontSize.CAPTION}px; color: {p.text_subtle}; }}
     QLabel#hint {{ font-size: {FontSize.CAPTION}px; color: {p.text_subtle}; }}
+    QLabel#preview {{
+        font-size: {FontSize.SMALL}px;
+        font-weight: 700;
+        color: {p.accent};
+        background-color: {p.accent_soft};
+        border: 1px solid {p.border};
+        border-radius: {Radius.SM}px;
+        padding: {Space.SM}px {Space.MD}px;
+    }}
     QLabel#emptyTitle {{ font-size: {FontSize.SUBTITLE}px; font-weight: 700; color: {p.text_muted}; }}
     QLabel#emptyBody {{ font-size: {FontSize.BODY}px; color: {p.text_subtle}; }}
     QLabel#emptyIcon {{ font-size: 40px; }}
