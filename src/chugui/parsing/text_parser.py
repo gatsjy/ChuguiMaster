@@ -16,14 +16,14 @@ from chugui.models import (
 )
 from chugui.parsing.amount import extract_amount
 from chugui.parsing.columns import parse_columns
-from chugui.parsing.names import extract_names, format_display_name
+from chugui.parsing.names import extract_names, format_display_name, strip_person_names
 from chugui.parsing.relations import guess_relation
 from chugui.parsing.tickets import adult_tickets as parse_adult_tickets
 from chugui.parsing.tickets import child_tickets as parse_child_tickets
 
 _ABSENT_RE = re.compile(r"불참|미참|못\s*오|못\s*와|못\s*참|결석")
 _PRESENT_RE = re.compile(r"참석|참여|오심|왔음|방문")
-_TRANSFER_RE = re.compile(r"계좌|이체|송금|토스|카카오\s*뱅크|카뱅|입금")
+_TRANSFER_RE = re.compile(r"계좌|이체|송금|토스|카카오\s*뱅크|카뱅|입금|페이")
 _COMMENT_RE = re.compile(r"^\s*(#|//|-{3,}|={3,})")
 
 
@@ -80,7 +80,11 @@ def parse_line(line: str, line_number: int = 1) -> Guest | None:
         names=names,
         aliases=aliases,
         amount=amount,
-        relation=guess_relation(belong, name_source, text),
+        relation=guess_relation(
+            belong,
+            strip_person_names(name_source, names) if name_found else name_source,
+            strip_person_names(text, names) if name_found else text,
+        ),
         attendance=attendance,
         payment=Payment.TRANSFER if _TRANSFER_RE.search(text) else Payment.CASH,
         adult_tickets=adult_tickets,
