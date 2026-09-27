@@ -91,10 +91,6 @@ class TestConfigRepository:
         repo.path.write_text(json.dumps(stored), encoding="utf-8")
         assert repo.load().theme == theme
 
-    def test_onboarding_flag_requires_true(self):
-        repo = ConfigRepository()
-        repo.path.write_text(json.dumps({"onboarded": "yes"}), encoding="utf-8")
-        assert repo.load().onboarded is False
 
     @pytest.mark.parametrize(
         ("stored", "expected"),

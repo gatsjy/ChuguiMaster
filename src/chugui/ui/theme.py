@@ -115,8 +115,6 @@ class Palette:
     retro: bool = False
     #: 입체 버튼 아래쪽 그림자 색.
     bevel: str = "#000000"
-    #: 퀘스트 강조 · 경험치 막대 색.
-    quest: str = "#fbbf24"
 
 
 DARK = Palette(
@@ -205,22 +203,22 @@ RETRO = Palette(
     text="#f4f1ff",
     text_muted="#d4ccff",
     text_subtle="#a9a0e0",
-    accent="#5ee9ff",
-    accent_strong="#c2185b",
-    accent_hover="#d81b60",
+    accent="#a9b8ff",
+    accent_strong="#4c3fb5",
+    accent_hover="#5a4cc8",
     accent_soft="#1f2150",
-    positive="#7dff6b",
-    positive_strong="#1b7a35",
+    positive="#7ddca0",
+    positive_strong="#1b7a45",
     positive_surface="#0f2a1c",
-    positive_border="#2fbf4f",
+    positive_border="#2f8f5a",
     warning="#ffb000",
     warning_text="#ffd166",
     warning_surface="#33230a",
     warning_border="#c98a00",
-    danger="#ff6b88",
+    danger="#ff8aa0",
     grid="#26215a",
     selection="#3b2f7a",
-    focus_ring="#ffd23f",
+    focus_ring="#a9b8ff",
     badges={
         Relation.FAMILY.value: BadgeColors("#3a0f4f", "#ffa8f5", "#c04bd8"),
         Relation.WORK.value: BadgeColors("#0e2350", "#8fd3ff", "#3b82f6"),
@@ -232,13 +230,12 @@ RETRO = Palette(
     radius_scale=0.0,
     retro=True,
     bevel="#05040f",
-    quest="#ffd23f",
 )
 
 PALETTES: dict[str, Palette] = {"retro": RETRO, "dark": DARK, "light": LIGHT}
 
 #: 테마 버튼에 표시할 '다음 테마' 이름.
-THEME_LABELS: dict[str, str] = {"retro": "🕹  레트로", "dark": "🌙  다크", "light": "☀  라이트"}
+THEME_LABELS: dict[str, str] = {"retro": "▦  레트로", "dark": "🌙  다크", "light": "☀  라이트"}
 
 
 def palette_for(dark_mode: bool) -> Palette:
@@ -545,86 +542,58 @@ def _base_stylesheet(p: Palette, r_sm: int, r_md: int, bw: int) -> str:
 
 
 def _quest_stylesheet(p: Palette, r_sm: int, bw: int) -> str:
-    """퀘스트 바 · 시작 화면. 모든 테마에 쓰인다."""
+    """단계 안내 바. 모든 테마에 쓰인다."""
     return f"""
     QFrame#questBar {{
         background-color: {p.surface};
-        border: {bw}px solid {p.quest};
+        border: {bw}px solid {p.border};
         border-radius: {r_sm}px;
     }}
-    QLabel#questLevel {{
-        font-size: {FontSize.SMALL}px;
-        font-weight: 800;
-        color: {p.window};
-        background-color: {p.quest};
-        border-radius: {r_sm}px;
-        padding: 2px {Space.SM}px;
-    }}
-    QLabel#questTitle {{ font-size: {FontSize.SUBTITLE}px; font-weight: 800; color: {p.text}; }}
-    QLabel#questHint {{ font-size: {FontSize.SMALL}px; color: {p.text_muted}; }}
-    QLabel#questXp {{ font-size: {FontSize.CAPTION}px; font-weight: 700; color: {p.text_subtle}; }}
+    QLabel#questTitle {{ font-size: {FontSize.BODY}px; font-weight: 700; color: {p.text}; }}
+    QLabel#questHint {{ font-size: {FontSize.SMALL}px; color: {p.text_subtle}; }}
 
-    /* 지금 퀘스트가 가리키는 요소. ID 규칙보다 우선하도록 ID까지 붙여 쓴다. */
+    /* 다음 단계가 가리키는 요소. ID 규칙보다 우선하도록 ID까지 붙여 쓴다. */
     QTextEdit[questTarget="on"], QTableView[questTarget="on"],
     QFrame#card[questTarget="on"], QPushButton#primary[questTarget="on"],
     QPushButton#success[questTarget="on"] {{
-        border: 3px solid {p.quest};
+        border: 2px solid {p.accent};
     }}
 
-    QFrame#startScreen {{ background-color: {p.window}; }}
-    QFrame#startPanel {{
-        background-color: {p.surface};
-        border: 3px solid {p.quest};
-        border-radius: {r_sm}px;
-    }}
-    QLabel#startLogo {{
-        font-size: 34px;
-        font-weight: 900;
-        color: {p.quest};
-        letter-spacing: 2px;
-    }}
-    QLabel#startSubtitle {{ font-size: {FontSize.SUBTITLE}px; color: {p.text_muted}; }}
-    QLabel#startStep {{ font-size: {FontSize.BODY}px; color: {p.text}; }}
-    QLabel#startBlink {{ font-size: {FontSize.SUBTITLE}px; font-weight: 800; color: {p.accent}; }}
     QLabel#questRow {{ font-size: {FontSize.BODY}px; color: {p.text}; }}
     QLabel#questRowDone {{ font-size: {FontSize.BODY}px; color: {p.positive}; }}
     """
 
 
 def _retro_stylesheet(p: Palette) -> str:
-    """아케이드 느낌: 굵은 테두리 · 입체 버튼 · 각진 모서리.
+    """레트로 느낌은 픽셀 폰트와 각진 모서리로만 낸다. 장식은 최소한으로.
 
-    Qt 스타일시트는 그림자를 지원하지 않으므로, 아래쪽 테두리를 두껍고 어둡게
-    칠해 눌리기 전의 입체감을 만들고, 누르면 그 두께를 위쪽 여백으로 옮겨
-    버튼이 '내려가는' 느낌을 낸다.
+    Qt 스타일시트는 그림자를 지원하지 않으므로 아래쪽 테두리를 조금 두껍게 칠해
+    얕은 입체감을 만들고, 누르면 그 두께를 위쪽 여백으로 옮긴다.
     """
     return f"""
-    QFrame#card, QFrame#netCard {{ border-width: 2px; }}
-    QTableView {{ border-width: 2px; }}
-    QLabel#appTitle {{ color: {p.quest}; letter-spacing: 1px; }}
-    QLabel#sectionTitle {{ color: {p.accent}; }}
     QHeaderView::section {{ border-bottom: 2px solid {p.border_strong}; }}
 
     QPushButton {{
-        border: 2px solid {p.border_strong};
-        border-bottom: 5px solid {p.bevel};
+        border: 1px solid {p.border_strong};
+        border-bottom: 3px solid {p.bevel};
     }}
     QPushButton:pressed {{
-        border-bottom: 2px solid {p.bevel};
-        margin-top: 3px;
+        border-bottom: 1px solid {p.bevel};
+        margin-top: 2px;
     }}
     QPushButton#primary, QPushButton#success {{
-        border: 2px solid {p.bevel};
-        border-bottom: 5px solid {p.bevel};
+        border: 1px solid {p.bevel};
+        border-bottom: 3px solid {p.bevel};
     }}
     QPushButton#primary:pressed, QPushButton#success:pressed {{
-        border-bottom: 2px solid {p.bevel};
-        margin-top: 3px;
+        border-bottom: 1px solid {p.bevel};
+        margin-top: 2px;
     }}
-    QPushButton#ghost {{ border: 2px solid {p.border}; border-bottom: 4px solid {p.bevel}; }}
-    QPushButton#danger {{ border: 2px solid {p.border}; border-bottom: 4px solid {p.bevel}; }}
+    QPushButton#ghost, QPushButton#danger {{
+        border: 1px solid {p.border};
+        border-bottom: 3px solid {p.bevel};
+    }}
 
-    QLineEdit, QSpinBox, QComboBox, QTextEdit, QPlainTextEdit {{ border-width: 2px; }}
-    QCheckBox::indicator {{ border-radius: 0px; border-width: 2px; }}
+    QCheckBox::indicator {{ border-radius: 0px; }}
     QScrollBar::handle:vertical, QScrollBar::handle:horizontal {{ border-radius: 0px; }}
     """
