@@ -37,10 +37,8 @@ class AppConfig:
     window_height: int = 880
     #: 'retro' · 'dark' · 'light'. dark_mode 는 구버전 호환용으로 함께 기록한다.
     theme: str = "retro"
-    #: 깬 퀘스트 키 목록.
+    #: 마친 안내 단계 키 목록.
     quests: list[str] = field(default_factory=list)
-    #: 첫 실행 시작 화면을 이미 봤는가.
-    onboarded: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -50,7 +48,6 @@ class AppConfig:
             "dark_mode": self.theme != "light",
             "theme": self.theme,
             "quests": list(self.quests),
-            "onboarded": self.onboarded,
             "window_width": self.window_width,
             "window_height": self.window_height,
         }
@@ -92,7 +89,6 @@ class AppConfig:
         quests = data.get("quests")
         if isinstance(quests, list):
             config.quests = [str(key) for key in quests]
-        config.onboarded = data.get("onboarded") is True
         return config
 
 

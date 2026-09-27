@@ -57,7 +57,7 @@ from chugui.samples import SAMPLE_TEXT
 from chugui.services.exporter import export_to_excel
 from chugui.services.merge import merge_guests
 from chugui.services.messages import MessageService
-from chugui.services.quests import QuestSnapshot, QuestTracker, Update
+from chugui.services.quests import Quest, QuestSnapshot, QuestTracker
 from chugui.services.settlement import Settlement, settle
 from chugui.storage.crash import CrashSentinel
 from chugui.storage.repositories import (
@@ -78,7 +78,7 @@ from chugui.ui.delegates import (
 )
 from chugui.ui.dialogs import HelpDialog, SnapshotRestoreDialog, TemplateSettingsDialog
 from chugui.ui.guest_model import Column, GuestFilterProxy, GuestTableModel
-from chugui.ui.quest_widgets import QuestBar, QuestLogDialog, StartScreen
+from chugui.ui.quest_widgets import QuestBar, QuestLogDialog
 from chugui.ui.theme import THEME_LABELS, Palette, Size, Space, build_stylesheet, palette_named
 from chugui.ui.widgets import DropTextEdit, EmptyState, MetricCard, ToastNotification
 
@@ -96,8 +96,6 @@ _SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000
 _UNDO_TOAST_MS = 9000
 #: 입력 미리보기 디바운스. 타이핑 중 매 글자 파싱하지 않는다.
 _PREVIEW_DEBOUNCE_MS = 300
-#: 퀘스트 대상 강조 깜박임 주기.
-_QUEST_BLINK_MS = 650
 
 _EMPTY_NO_DATA = (
     "아직 취합된 내역이 없습니다",
@@ -177,22 +175,10 @@ class MainWindow(QMainWindow):
         self._toast = ToastNotification(self)
         self._apply_toast_palette()
 
-        # 퀘스트가 가리키는 버튼·영역을 깜박여 '다음에 누를 곳' 을 알려 준다.
+        # 다음 단계에서 쓸 버튼·영역에 테두리를 둘러 '다음에 누를 곳' 을 알려 준다.
         self._quest_target: QWidget | None = None
-        self._quest_blink_on = False
-        self._quest_blink_timer = QTimer(self)
-        self._quest_blink_timer.setInterval(_QUEST_BLINK_MS)
-        self._quest_blink_timer.timeout.connect(self._blink_quest_target)
-        self._quest_blink_timer.start()
+        self._quests_ready = True
         self._refresh_quests()
-
-        self._start_screen = StartScreen(self)
-        self._start_screen.practiceRequested.connect(self._on_start_practice)
-        self._start_screen.startRequested.connect(self._on_start_plain)
-        if self._config.onboarded:
-            self._start_screen.hide()
-        else:
-            self._start_screen.present()
 
         self._model.guestsChanged.connect(self._on_guests_changed)
         self._proxy.rowsInserted.connect(self._update_empty_state)
@@ -400,7 +386,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(Space.MD, Space.MD, Space.MD, Space.MD)
         layout.setSpacing(Space.SM)
 
-        heading = QLabel("STAGE 1 ▸ 명단 입력")
+        heading = QLabel("1. 명단 입력")
         heading.setObjectName("sectionTitle")
 
         hint_box = QFrame()
@@ -439,7 +425,7 @@ class MainWindow(QMainWindow):
         self._preview.setToolTip("입력한 내용을 실시간으로 미리 해석한 결과입니다.")
         self._preview.hide()
 
-        btn_parse = QPushButton("▶  자동 취합 및 파싱")
+        btn_parse = QPushButton("자동 취합 및 파싱")
         btn_parse.setObjectName("primary")
         btn_parse.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_parse.setToolTip("입력한 텍스트를 표로 변환합니다.  (Ctrl+Enter)")
@@ -496,7 +482,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(Space.LG, Space.LG, Space.LG, Space.LG)
         layout.setSpacing(Space.SM)
 
-        heading = QLabel("STAGE 2 ▸ 확인 · 감사")
+        heading = QLabel("2. 확인 및 감사 인사")
         heading.setObjectName("sectionTitle")
 
         self._search = QLineEdit()
@@ -1011,7 +997,7 @@ class MainWindow(QMainWindow):
         if result.duplicate_count:
             self._chk_review.setChecked(True)
 
-    # ------------------------------------------------------------ 퀘스트
+    # ------------------------------------------------------------ 단계 안내
 
     def _observe_quests(self, result: Settlement) -> None:
         if not hasattr(self, "_tracker") or not hasattr(self, "_quest_bar"):
@@ -1024,23 +1010,15 @@ class MainWindow(QMainWindow):
         )
         self._apply_quest_update(self._tracker.observe(snapshot))
 
-    def _apply_quest_update(self, update: Update) -> None:
-        if update.newly_cleared:
-            last = update.newly_cleared[-1]
-            xp = sum(quest.xp for quest in update.newly_cleared)
-            progress = self._tracker.progress()
-            if update.level_up:
-                headline = f"★ LEVEL UP!  LV.{progress.level} {progress.title}"
-            else:
-                headline = f"★ QUEST CLEAR!  {last.title}"
-            # 상태바는 정산 요약 자리라 건드리지 않는다. 축하는 퀘스트 바에서만.
-            self._quest_bar.celebrate(headline, f"+{xp} XP 획득")
+    def _apply_quest_update(self, done: tuple[Quest, ...]) -> None:
+        if done:
+            self._quest_bar.announce_done(done)
             self._config.quests = self._tracker.cleared_keys
             self._schedule_config_save()
         self._refresh_quests()
 
     def _refresh_quests(self) -> None:
-        if not hasattr(self, "_quest_blink_timer"):
+        if not hasattr(self, "_quests_ready"):
             return  # 생성자 도중. 준비가 끝나면 다시 불린다.
         progress = self._tracker.progress()
         self._quest_bar.set_progress(progress)
@@ -1054,20 +1032,14 @@ class MainWindow(QMainWindow):
         target = targets.get(progress.current.target) if progress.current else None
         if target is not self._quest_target:
             self._set_quest_highlight(self._quest_target, False)
+            self._set_quest_highlight(target, True)
             self._quest_target = target
-
-    def _blink_quest_target(self) -> None:
-        self._quest_blink_on = not self._quest_blink_on
-        self._set_quest_highlight(self._quest_target, self._quest_blink_on)
 
     @staticmethod
     def _set_quest_highlight(widget: QWidget | None, on: bool) -> None:
         if widget is None:
             return
-        value = "on" if on else "off"
-        if widget.property("questTarget") == value:
-            return
-        widget.setProperty("questTarget", value)
+        widget.setProperty("questTarget", "on" if on else "off")
         # 동적 속성은 다시 polish 해야 스타일시트에 반영된다.
         widget.style().unpolish(widget)
         widget.style().polish(widget)
@@ -1081,20 +1053,7 @@ class MainWindow(QMainWindow):
             self._config.quests = []
             self._schedule_config_save()
             self._refresh_quests()
-            self._toast.show_message("퀘스트를 처음부터 다시 시작합니다.")
-
-    def _finish_onboarding(self) -> None:
-        self._start_screen.dismiss()
-        self._config.onboarded = True
-        self._schedule_config_save()
-
-    def _on_start_practice(self) -> None:
-        self._finish_onboarding()
-        self._handle_sample()
-
-    def _on_start_plain(self) -> None:
-        self._finish_onboarding()
-        self._input.setFocus()
+            self._toast.show_message("단계 안내를 처음부터 다시 보여 드립니다.")
 
     # ------------------------------------------------- 스냅샷 · 되돌리기
 
@@ -1198,8 +1157,6 @@ class MainWindow(QMainWindow):
         super().resizeEvent(event)
         if hasattr(self, "_toast"):
             self._toast.reposition()
-        if hasattr(self, "_start_screen") and self._start_screen.isVisible():
-            self._start_screen.setGeometry(self.rect())
         self._schedule_config_save()
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
@@ -1208,7 +1165,6 @@ class MainWindow(QMainWindow):
         self._config_timer.stop()
         self._snapshot_timer.stop()
         self._preview_timer.stop()
-        self._quest_blink_timer.stop()
         self._save_session()
         self._save_config()
         self._sentinel.disarm()
