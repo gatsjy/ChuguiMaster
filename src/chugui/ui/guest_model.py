@@ -67,7 +67,8 @@ HEADERS: dict[Column, str] = {
 TOOLTIPS: dict[Column, str] = {
     Column.NAME: "더블클릭하면 이름을 직접 수정할 수 있습니다.",
     Column.AMOUNT: "더블클릭하면 금액을 직접 수정할 수 있습니다.",
-    Column.RELATION: "관계를 바꾸면 감사 메시지 문구가 즉시 바뀝니다.",
+    Column.RELATION: "클릭하면 관계 목록이 열립니다. 바꾸면 감사 메시지 문구가 즉시 바뀝니다.",
+    Column.ATTENDANCE: "클릭하면 참석 / 불참(송금)을 고를 수 있습니다.",
     Column.ADULT_TICKETS: "발급된 대인 식권 수. 식대 차감의 기준입니다.",
     Column.CHILD_TICKETS: "발급된 소인 식권 수.",
     Column.COPY: "클릭하면 감사 메시지가 클립보드에 복사됩니다.",
