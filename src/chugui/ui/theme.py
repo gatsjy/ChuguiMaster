@@ -174,7 +174,7 @@ def build_stylesheet(palette: Palette) -> str:
     r_sm = round(Radius.SM * p.radius_scale)
     r_md = round(Radius.MD * p.radius_scale)
     bw = 2 if p.retro else 1
-    return _base_stylesheet(p, r_sm, r_md, bw) + _quest_stylesheet(p, r_sm, bw) + (
+    return _base_stylesheet(p, r_sm, r_md, bw) + (
         _retro_stylesheet(p) if p.retro else ""
     )
 
@@ -317,6 +317,15 @@ def _base_stylesheet(p: Palette, r_sm: int, r_md: int, bw: int) -> str:
         font-size: {FontSize.SUBTITLE}px;
     }}
     QPushButton#success:hover {{ background-color: {p.positive}; border-color: {p.positive}; }}
+
+    QPushButton#successOutline {{
+        color: {p.positive};
+        background-color: transparent;
+        border: 1px solid {p.positive_border};
+        min-height: {Size.CONTROL_HEIGHT - 8}px;
+        font-size: {FontSize.SUBTITLE}px;
+    }}
+    QPushButton#successOutline:hover {{ background-color: {p.positive_surface}; }}
 
     QPushButton#ghost {{
         min-height: {Size.COMPACT_HEIGHT - 8}px;
@@ -469,29 +478,6 @@ def _base_stylesheet(p: Palette, r_sm: int, r_md: int, bw: int) -> str:
     """
 
 
-def _quest_stylesheet(p: Palette, r_sm: int, bw: int) -> str:
-    """단계 안내 바. 모든 테마에 쓰인다."""
-    return f"""
-    QFrame#questBar {{
-        background-color: {p.surface};
-        border: {bw}px solid {p.border};
-        border-radius: {r_sm}px;
-    }}
-    QLabel#questTitle {{ font-size: {FontSize.BODY}px; font-weight: 700; color: {p.text}; }}
-    QLabel#questHint {{ font-size: {FontSize.SMALL}px; color: {p.text_subtle}; }}
-
-    /* 다음 단계가 가리키는 요소. ID 규칙보다 우선하도록 ID까지 붙여 쓴다. */
-    QTextEdit[questTarget="on"], QTableView[questTarget="on"],
-    QFrame#card[questTarget="on"], QPushButton#primary[questTarget="on"],
-    QPushButton#success[questTarget="on"] {{
-        border: 2px solid {p.accent};
-    }}
-
-    QLabel#questRow {{ font-size: {FontSize.BODY}px; color: {p.text}; }}
-    QLabel#questRowDone {{ font-size: {FontSize.BODY}px; color: {p.positive}; }}
-    """
-
-
 def _retro_stylesheet(p: Palette) -> str:
     """레트로 느낌은 픽셀 폰트와 각진 모서리로만 낸다. 장식은 최소한으로.
 
@@ -513,13 +499,23 @@ def _retro_stylesheet(p: Palette) -> str:
         border: 1px solid {p.bevel};
         border-bottom: 3px solid {p.bevel};
     }}
-    QPushButton#primary:pressed, QPushButton#success:pressed {{
+    QPushButton#successOutline {{
+        border: 1px solid {p.positive_border};
+        border-bottom: 3px solid {p.bevel};
+    }}
+    QPushButton#primary:pressed, QPushButton#success:pressed, QPushButton#successOutline:pressed {{
         border-bottom: 1px solid {p.bevel};
         margin-top: 2px;
     }}
+    /* 머리줄 버튼은 거의 검은 창 바탕 위에 놓인다. 그림자색(bevel)을 쓰면 아래 테두리가
+       바탕에 묻혀 버튼이 아래가 잘린 탭처럼 보였다. 테두리 색으로 입체감을 낸다. */
     QPushButton#ghost, QPushButton#danger {{
-        border: 1px solid {p.border};
-        border-bottom: 3px solid {p.bevel};
+        border: 1px solid {p.border_strong};
+        border-bottom: 3px solid {p.border};
+    }}
+    QPushButton#ghost:pressed, QPushButton#danger:pressed {{
+        border-bottom: 1px solid {p.border};
+        margin-top: 2px;
     }}
 
     QCheckBox::indicator {{ border-radius: 0px; }}

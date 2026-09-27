@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -32,8 +32,6 @@ class AppConfig:
     window_height: int = 880
     #: 창을 최대화한 채 종료했는가. 다음 실행에서 최대화로 연다.
     maximized: bool = False
-    #: 마친 안내 단계 키 목록.
-    quests: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -41,7 +39,6 @@ class AppConfig:
             "adult_meal": self.adult_meal,
             "child_meal": self.child_meal,
             "maximized": self.maximized,
-            "quests": list(self.quests),
             "window_width": self.window_width,
             "window_height": self.window_height,
         }
@@ -64,9 +61,6 @@ class AppConfig:
         config.window_height = _int("window_height", config.window_height, 600, 4000)
         config.maximized = data.get("maximized") is True
 
-        quests = data.get("quests")
-        if isinstance(quests, list):
-            config.quests = [str(key) for key in quests]
         return config
 
 

@@ -29,7 +29,7 @@ from chugui.models import (
     renumber,
 )
 from chugui.services.messages import MessageService
-from chugui.ui.commands import EditGuestCommand
+from chugui.ui.commands import EditGuestCommand, RemoveGuestsCommand
 
 # 델리게이트가 셀에 담긴 Guest를 직접 꺼내 쓰기 위한 사용자 역할.
 GUEST_ROLE = int(Qt.ItemDataRole.UserRole) + 1
@@ -137,6 +137,42 @@ class GuestTableModel(QAbstractTableModel):
 
     def clear(self) -> None:
         self.set_guests([])
+
+    def remove_rows(self, rows: Sequence[int]) -> None:
+        """줄을 지운다. 되돌리기 스택이 있으면 Ctrl+Z 로 되살릴 수 있다."""
+        targets = sorted({row for row in rows if 0 <= row < len(self._guests)})
+        if not targets:
+            return
+        if self._undo_stack is None:
+            self.commit_remove(targets)
+            return
+        label = "줄 삭제" if len(targets) == 1 else f"{len(targets)}줄 삭제"
+        self._undo_stack.push(RemoveGuestsCommand(self, targets, label))
+
+    def commit_remove(self, rows: Sequence[int]) -> list[tuple[int, Guest]]:
+        """지운 (원래 위치, 하객) 목록을 위치 오름차순으로 돌려준다."""
+        removed: list[tuple[int, Guest]] = []
+        for row in sorted(rows, reverse=True):
+            self.beginRemoveRows(QModelIndex(), row, row)
+            removed.append((row, self._guests.pop(row)))
+            self.endRemoveRows()
+        self._after_rows_changed()
+        return list(reversed(removed))
+
+    def commit_insert(self, rows: Sequence[tuple[int, Guest]]) -> None:
+        """:meth:`commit_remove` 가 돌려준 목록을 원래 자리에 되돌린다."""
+        for row, guest in sorted(rows, key=lambda item: item[0]):
+            self.beginInsertRows(QModelIndex(), row, row)
+            self._guests.insert(row, guest)
+            self.endInsertRows()
+        self._after_rows_changed()
+
+    def _after_rows_changed(self) -> None:
+        # 순번은 화면에 보이는 값이다. 줄이 빠지면 1..N 으로 다시 매긴다.
+        renumber(self._guests)
+        if self._guests:
+            self.dataChanged.emit(self.index(0, Column.NO), self.index(len(self._guests) - 1, Column.NO))
+        self.guestsChanged.emit()
 
     def refresh_messages(self) -> None:
         """템플릿이 바뀌었을 때 메시지 열만 갱신한다."""
