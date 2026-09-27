@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -28,16 +28,20 @@ class AppConfig:
 
     adult_meal: int = DEFAULT_ADULT_MEAL
     child_meal: int = DEFAULT_CHILD_MEAL
-    dark_mode: bool = True
     window_width: int = 1360
     window_height: int = 880
+    #: 창을 최대화한 채 종료했는가. 다음 실행에서 최대화로 연다.
+    maximized: bool = False
+    #: 마친 안내 단계 키 목록.
+    quests: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "schema_version": SCHEMA_VERSION,
             "adult_meal": self.adult_meal,
             "child_meal": self.child_meal,
-            "dark_mode": self.dark_mode,
+            "maximized": self.maximized,
+            "quests": list(self.quests),
             "window_width": self.window_width,
             "window_height": self.window_height,
         }
@@ -58,15 +62,11 @@ class AppConfig:
         config.child_meal = _int("child_meal", config.child_meal, 0, 1_000_000)
         config.window_width = _int("window_width", config.window_width, 900, 6000)
         config.window_height = _int("window_height", config.window_height, 600, 4000)
-        dark_mode = data.get("dark_mode", config.dark_mode)
-        if isinstance(dark_mode, bool):
-            config.dark_mode = dark_mode
-        elif isinstance(dark_mode, str):
-            normalized = dark_mode.strip().lower()
-            if normalized in {"true", "1", "yes", "on"}:
-                config.dark_mode = True
-            elif normalized in {"false", "0", "no", "off"}:
-                config.dark_mode = False
+        config.maximized = data.get("maximized") is True
+
+        quests = data.get("quests")
+        if isinstance(quests, list):
+            config.quests = [str(key) for key in quests]
         return config
 
 

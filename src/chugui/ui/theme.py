@@ -1,7 +1,7 @@
 """디자인 시스템.
 
 색 · 간격 · 타이포그래피를 **토큰**으로 정의하고, 스타일시트는 거기서 생성한다.
-값을 바꾸려면 토큰만 고치면 되고, 두 테마가 구조적으로 항상 대응한다.
+값을 바꾸려면 토큰만 고치면 된다. 화면은 레트로 테마 하나만 쓴다.
 
 접근성 원칙: 본문 텍스트는 배경 대비 **4.5:1 이상**(WCAG AA),
 큰 텍스트(18.66px 이상 굵게)는 **3:1 이상**을 만족한다.
@@ -17,6 +17,12 @@ from chugui.models import Relation
 # --------------------------------------------------------------------- 토큰
 
 FONT_STACK = "'Pretendard', 'Malgun Gothic', '맑은 고딕', 'Segoe UI', sans-serif"
+#: 레트로 테마용 픽셀 폰트. ``assets/fonts`` 에 넣어 두면 자동으로 등록된다.
+#: 없으면 시스템 폰트로 내려가며, 그래도 색·테두리·기호로 레트로 느낌은 유지된다.
+PIXEL_FONT_STACK = (
+    "'Galmuri11', 'Galmuri9', 'DungGeunMo', 'NeoDunggeunmo', "
+    "'Malgun Gothic', '맑은 고딕', monospace"
+)
 
 
 class Space:
@@ -102,85 +108,57 @@ class Palette:
     selection: str
     focus_ring: str
     badges: dict[str, BadgeColors]
+    font_stack: str = FONT_STACK
+    #: 0이면 모든 모서리가 각진다(픽셀 느낌).
+    radius_scale: float = 1.0
+    #: 레트로 전용 장식(입체 버튼 · 굵은 테두리)을 켠다.
+    retro: bool = False
+    #: 입체 버튼 아래쪽 그림자 색.
+    bevel: str = "#000000"
 
 
-DARK = Palette(
-    name="dark",
-    window="#0b1220",
-    surface="#151f33",
-    surface_alt="#1c2942",
-    surface_hover="#233150",
-    border="#2c3b57",
-    border_strong="#3d5075",
-    text="#f1f5f9",
-    text_muted="#c3cfe0",
-    text_subtle="#93a3bb",
-    accent="#93a5fd",
-    accent_strong="#4f46e5",
-    accent_hover="#6366f1",
-    accent_soft="#1e2547",
-    positive="#4ade80",
-    # 채워진 버튼 위의 흰 글씨가 WCAG AA(4.5:1)를 넘어야 한다.
-    # #059669는 3.77:1로 미달이라 한 단계 어둡게 잡았다.
-    positive_strong="#047857",
-    positive_surface="#0a3a2c",
-    positive_border="#0f7057",
-    warning="#fbbf24",
-    warning_text="#fcd34d",
-    warning_surface="#3a2a08",
-    warning_border="#a16207",
-    danger="#fb7185",
-    grid="#22304a",
-    selection="#2b3a63",
-    focus_ring="#93a5fd",
+RETRO = Palette(
+    name="retro",
+    window="#0d0b1e",
+    surface="#17143a",
+    surface_alt="#1d1947",
+    surface_hover="#29245e",
+    border="#3a3480",
+    border_strong="#6a5fd0",
+    text="#f4f1ff",
+    text_muted="#d4ccff",
+    text_subtle="#a9a0e0",
+    accent="#a9b8ff",
+    accent_strong="#4c3fb5",
+    accent_hover="#5a4cc8",
+    accent_soft="#1f2150",
+    positive="#7ddca0",
+    positive_strong="#1b7a45",
+    positive_surface="#0f2a1c",
+    positive_border="#2f8f5a",
+    warning="#ffb000",
+    warning_text="#ffd166",
+    warning_surface="#33230a",
+    warning_border="#c98a00",
+    danger="#ff8aa0",
+    grid="#26215a",
+    selection="#3b2f7a",
+    focus_ring="#a9b8ff",
     badges={
-        Relation.FAMILY.value: BadgeColors("#3b1163", "#e0bafd", "#7e34c9"),
-        Relation.WORK.value: BadgeColors("#1b2260", "#b4befe", "#4f5bd5"),
-        Relation.FAITH.value: BadgeColors("#0a3a2c", "#82efb9", "#0f7057"),
-        Relation.SCHOOL.value: BadgeColors("#452408", "#fbd38d", "#b45309"),
-        Relation.OTHER.value: BadgeColors("#2c3b57", "#dbe4f0", "#4a5c7e"),
+        Relation.FAMILY.value: BadgeColors("#3a0f4f", "#ffa8f5", "#c04bd8"),
+        Relation.WORK.value: BadgeColors("#0e2350", "#8fd3ff", "#3b82f6"),
+        Relation.FAITH.value: BadgeColors("#0f3326", "#8cffc1", "#22b573"),
+        Relation.SCHOOL.value: BadgeColors("#3d2608", "#ffd166", "#d08c00"),
+        Relation.OTHER.value: BadgeColors("#26215a", "#e4e0ff", "#6a5fd0"),
     },
+    font_stack=PIXEL_FONT_STACK,
+    radius_scale=0.0,
+    retro=True,
+    bevel="#05040f",
 )
 
-LIGHT = Palette(
-    name="light",
-    window="#eef2f7",
-    surface="#ffffff",
-    surface_alt="#f6f8fb",
-    surface_hover="#eaeff6",
-    border="#dde4ee",
-    border_strong="#c2ccdb",
-    text="#0f172a",
-    text_muted="#475569",
-    text_subtle="#5c6b81",
-    accent="#4338ca",
-    accent_strong="#4f46e5",
-    accent_hover="#6366f1",
-    accent_soft="#eef0ff",
-    positive="#047857",
-    positive_strong="#047857",
-    positive_surface="#ecfdf5",
-    positive_border="#a7f3d0",
-    warning="#b45309",
-    warning_text="#92400e",
-    warning_surface="#fffbeb",
-    warning_border="#fcd34d",
-    danger="#dc2626",
-    grid="#eef2f7",
-    selection="#e0e7ff",
-    focus_ring="#4f46e5",
-    badges={
-        Relation.FAMILY.value: BadgeColors("#f5e9ff", "#6b21a8", "#d8b4fe"),
-        Relation.WORK.value: BadgeColors("#e8ebff", "#3730a3", "#a5b4fc"),
-        Relation.FAITH.value: BadgeColors("#e3fcef", "#065f46", "#6ee7b7"),
-        Relation.SCHOOL.value: BadgeColors("#fef6e0", "#8a4708", "#fcd34d"),
-        Relation.OTHER.value: BadgeColors("#eef2f7", "#334155", "#c2ccdb"),
-    },
-)
-
-
-def palette_for(dark_mode: bool) -> Palette:
-    return DARK if dark_mode else LIGHT
+#: 앱이 쓰는 유일한 팔레트.
+PALETTE = RETRO
 
 
 def badge_colors(palette: Palette, relation: Relation) -> BadgeColors:
@@ -193,9 +171,18 @@ def badge_colors(palette: Palette, relation: Relation) -> BadgeColors:
 def build_stylesheet(palette: Palette) -> str:
     """토큰으로부터 애플리케이션 전역 스타일시트를 생성한다."""
     p = palette
+    r_sm = round(Radius.SM * p.radius_scale)
+    r_md = round(Radius.MD * p.radius_scale)
+    bw = 2 if p.retro else 1
+    return _base_stylesheet(p, r_sm, r_md, bw) + _quest_stylesheet(p, r_sm, bw) + (
+        _retro_stylesheet(p) if p.retro else ""
+    )
+
+
+def _base_stylesheet(p: Palette, r_sm: int, r_md: int, bw: int) -> str:
     return f"""
     QWidget {{
-        font-family: {FONT_STACK};
+        font-family: {p.font_stack};
         font-size: {FontSize.BODY}px;
         color: {p.text};
     }}
@@ -225,7 +212,7 @@ def build_stylesheet(palette: Palette) -> str:
         color: {p.accent};
         background-color: {p.accent_soft};
         border: 1px solid {p.border};
-        border-radius: {Radius.SM}px;
+        border-radius: {r_sm}px;
         padding: {Space.SM}px {Space.MD}px;
     }}
     QLabel#emptyTitle {{ font-size: {FontSize.SUBTITLE}px; font-weight: 700; color: {p.text_muted}; }}
@@ -236,23 +223,23 @@ def build_stylesheet(palette: Palette) -> str:
     QFrame#card {{
         background-color: {p.surface};
         border: 1px solid {p.border};
-        border-radius: {Radius.MD}px;
+        border-radius: {r_md}px;
     }}
     QFrame#netCard {{
         background-color: {p.positive_surface};
         border: 1px solid {p.positive_border};
-        border-radius: {Radius.MD}px;
+        border-radius: {r_md}px;
     }}
     QFrame#reviewBanner {{
         background-color: {p.warning_surface};
         border: 1px solid {p.warning_border};
-        border-radius: {Radius.SM}px;
+        border-radius: {r_sm}px;
     }}
     QLabel#reviewBannerText {{ color: {p.warning_text}; font-size: {FontSize.BODY}px; font-weight: 700; }}
     QFrame#hintBox {{
         background-color: {p.surface_alt};
         border: 1px dashed {p.border_strong};
-        border-radius: {Radius.SM}px;
+        border-radius: {r_sm}px;
     }}
     QFrame#separator {{ background-color: {p.border}; border: none; }}
 
@@ -260,7 +247,7 @@ def build_stylesheet(palette: Palette) -> str:
     QTextEdit, QPlainTextEdit {{
         background-color: {p.surface_alt};
         border: 1px solid {p.border};
-        border-radius: {Radius.SM}px;
+        border-radius: {r_sm}px;
         padding: {Space.MD}px;
         font-size: {FontSize.BODY}px;
         color: {p.text};
@@ -276,7 +263,7 @@ def build_stylesheet(palette: Palette) -> str:
     QLineEdit, QSpinBox, QComboBox {{
         background-color: {p.surface_alt};
         border: 1px solid {p.border};
-        border-radius: {Radius.SM}px;
+        border-radius: {r_sm}px;
         padding: {Space.XS}px {Space.SM}px;
         font-size: {FontSize.SMALL}px;
         font-weight: 600;
@@ -290,7 +277,7 @@ def build_stylesheet(palette: Palette) -> str:
         background-color: {p.surface};
         color: {p.text};
         border: 1px solid {p.border};
-        border-radius: {Radius.SM}px;
+        border-radius: {r_sm}px;
         padding: {Space.XS}px;
         selection-background-color: {p.accent_strong};
         selection-color: #ffffff;
@@ -301,7 +288,7 @@ def build_stylesheet(palette: Palette) -> str:
     QPushButton {{
         font-size: {FontSize.BODY}px;
         font-weight: 700;
-        border-radius: {Radius.SM}px;
+        border-radius: {r_sm}px;
         padding: {Space.SM}px {Space.LG}px;
         min-height: {Size.CONTROL_HEIGHT - 12}px;
         border: 1px solid {p.border_strong};
@@ -361,12 +348,25 @@ def build_stylesheet(palette: Palette) -> str:
         padding: {Space.XS}px {Space.MD}px;
     }}
 
+    /* ------------------------------------------------------------ 목록 */
+    QListView {{
+        background-color: {p.surface};
+        border: 1px solid {p.border};
+        border-radius: {r_sm}px;
+        color: {p.text};
+        outline: none;
+        padding: {Space.XS}px;
+    }}
+    QListView::item {{ padding: {Space.SM}px; border-bottom: 1px solid {p.grid}; }}
+    QListView::item:hover {{ background-color: {p.surface_hover}; }}
+    QListView::item:selected {{ background-color: {p.selection}; color: {p.text}; }}
+
     /* -------------------------------------------------------------- 표 */
     QTableView {{
         background-color: {p.surface};
         alternate-background-color: {p.surface_alt};
         border: 1px solid {p.border};
-        border-radius: {Radius.MD}px;
+        border-radius: {r_md}px;
         gridline-color: {p.grid};
         font-size: {FontSize.BODY}px;
         color: {p.text};
@@ -392,7 +392,7 @@ def build_stylesheet(palette: Palette) -> str:
     /* ------------------------------------------------------------ 기타 */
     QTabWidget::pane {{
         border: 1px solid {p.border};
-        border-radius: {Radius.SM}px;
+        border-radius: {r_sm}px;
         background: {p.surface};
         top: -1px;
     }}
@@ -403,8 +403,8 @@ def build_stylesheet(palette: Palette) -> str:
         font-weight: 600;
         color: {p.text_subtle};
         border: 1px solid transparent;
-        border-top-left-radius: {Radius.SM}px;
-        border-top-right-radius: {Radius.SM}px;
+        border-top-left-radius: {r_sm}px;
+        border-top-right-radius: {r_sm}px;
     }}
     QTabBar::tab:selected {{
         background: {p.surface};
@@ -461,9 +461,117 @@ def build_stylesheet(palette: Palette) -> str:
         background-color: {p.surface};
         color: {p.text};
         border: 1px solid {p.border_strong};
-        border-radius: {Radius.SM}px;
+        border-radius: {r_sm}px;
         padding: {Space.SM}px;
         font-size: {FontSize.SMALL}px;
     }}
     QScrollArea {{ background: transparent; border: none; }}
     """
+
+
+def _quest_stylesheet(p: Palette, r_sm: int, bw: int) -> str:
+    """단계 안내 바. 모든 테마에 쓰인다."""
+    return f"""
+    QFrame#questBar {{
+        background-color: {p.surface};
+        border: {bw}px solid {p.border};
+        border-radius: {r_sm}px;
+    }}
+    QLabel#questTitle {{ font-size: {FontSize.BODY}px; font-weight: 700; color: {p.text}; }}
+    QLabel#questHint {{ font-size: {FontSize.SMALL}px; color: {p.text_subtle}; }}
+
+    /* 다음 단계가 가리키는 요소. ID 규칙보다 우선하도록 ID까지 붙여 쓴다. */
+    QTextEdit[questTarget="on"], QTableView[questTarget="on"],
+    QFrame#card[questTarget="on"], QPushButton#primary[questTarget="on"],
+    QPushButton#success[questTarget="on"] {{
+        border: 2px solid {p.accent};
+    }}
+
+    QLabel#questRow {{ font-size: {FontSize.BODY}px; color: {p.text}; }}
+    QLabel#questRowDone {{ font-size: {FontSize.BODY}px; color: {p.positive}; }}
+    """
+
+
+def _retro_stylesheet(p: Palette) -> str:
+    """레트로 느낌은 픽셀 폰트와 각진 모서리로만 낸다. 장식은 최소한으로.
+
+    Qt 스타일시트는 그림자를 지원하지 않으므로 아래쪽 테두리를 조금 두껍게 칠해
+    얕은 입체감을 만들고, 누르면 그 두께를 위쪽 여백으로 옮긴다.
+    """
+    return f"""
+    QHeaderView::section {{ border-bottom: 2px solid {p.border_strong}; }}
+
+    QPushButton {{
+        border: 1px solid {p.border_strong};
+        border-bottom: 3px solid {p.bevel};
+    }}
+    QPushButton:pressed {{
+        border-bottom: 1px solid {p.bevel};
+        margin-top: 2px;
+    }}
+    QPushButton#primary, QPushButton#success {{
+        border: 1px solid {p.bevel};
+        border-bottom: 3px solid {p.bevel};
+    }}
+    QPushButton#primary:pressed, QPushButton#success:pressed {{
+        border-bottom: 1px solid {p.bevel};
+        margin-top: 2px;
+    }}
+    QPushButton#ghost, QPushButton#danger {{
+        border: 1px solid {p.border};
+        border-bottom: 3px solid {p.bevel};
+    }}
+
+    QCheckBox::indicator {{ border-radius: 0px; }}
+    QScrollBar::handle:vertical, QScrollBar::handle:horizontal {{ border-radius: 0px; }}
+    """
+
+
+def apply_application_theme(palette: Palette) -> None:
+    """앱 전체에 팔레트와 스타일시트를 적용한다.
+
+    스타일시트는 이름을 붙인 위젯만 칠한다. 칠하지 않은 위젯(목록 · 스크롤 영역 ·
+    메시지 상자 등)은 Windows 기본값인 **흰 바탕**을 쓰면서 글자색만 밝은 색을
+    물려받아, 글자가 보이지 않았다('이전 시점 복구' 목록, '입력 가이드').
+    기본 팔레트 자체를 테마 색으로 맞추면 새 화면을 추가해도 같은 사고가 나지 않는다.
+    창에만 걸지 않고 앱에 거는 이유: 부모 없이 뜨는 대화상자에도 적용되어야 한다.
+    """
+    from PySide6.QtGui import QColor, QPalette
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    if app is None:
+        return
+    p = palette
+    qp = QPalette()
+    role = QPalette.ColorRole
+    for group in (QPalette.ColorGroup.Active, QPalette.ColorGroup.Inactive):
+        for color_role, value in (
+            (role.Window, p.window),
+            (role.WindowText, p.text),
+            (role.Base, p.surface),
+            (role.AlternateBase, p.surface_alt),
+            (role.Text, p.text),
+            (role.PlaceholderText, p.text_subtle),
+            (role.Button, p.surface_alt),
+            (role.ButtonText, p.text),
+            (role.BrightText, "#ffffff"),
+            (role.Highlight, p.selection),
+            (role.HighlightedText, p.text),
+            (role.ToolTipBase, p.surface),
+            (role.ToolTipText, p.text),
+            (role.Link, p.accent),
+            (role.Mid, p.border),
+            (role.Dark, p.bevel),
+        ):
+            qp.setColor(group, color_role, QColor(value))
+    for color_role in (role.WindowText, role.Text, role.ButtonText):
+        qp.setColor(QPalette.ColorGroup.Disabled, color_role, QColor(p.text_subtle))
+    qp.setColor(QPalette.ColorGroup.Disabled, role.Base, QColor(p.window))
+    qp.setColor(QPalette.ColorGroup.Disabled, role.Window, QColor(p.window))
+    # 같은 값을 다시 걸어도 Qt 는 살아 있는 모든 위젯을 다시 칠한다. 바뀔 때만 건다.
+    if app.palette() != qp:
+        app.setPalette(qp)
+    sheet = build_stylesheet(p)
+    if app.styleSheet() != sheet:
+        app.setStyleSheet(sheet)

@@ -50,14 +50,16 @@ from PySide6.QtWidgets import (
 )
 
 from chugui import __version__
-from chugui.models import Relation, Source
-from chugui.parsing.excel_parser import ExcelParseError, parse_spreadsheet
+from chugui.models import Guest, Relation, Source
+from chugui.parsing.excel_parser import ExcelParseError, read_spreadsheet
 from chugui.parsing.text_parser import parse_text
 from chugui.samples import SAMPLE_TEXT
 from chugui.services.exporter import export_to_excel
 from chugui.services.merge import merge_guests
 from chugui.services.messages import MessageService
+from chugui.services.quests import Quest, QuestSnapshot, QuestTracker
 from chugui.services.settlement import Settlement, settle
+from chugui.services.text_export import export_text
 from chugui.storage.crash import CrashSentinel
 from chugui.storage.repositories import (
     AppConfig,
@@ -74,9 +76,15 @@ from chugui.ui.delegates import (
     TicketSpinDelegate,
     install_hover_tracking,
 )
-from chugui.ui.dialogs import HelpDialog, SnapshotRestoreDialog, TemplateSettingsDialog
+from chugui.ui.dialogs import (
+    HelpDialog,
+    SnapshotRestoreDialog,
+    TemplateSettingsDialog,
+    TextExportDialog,
+)
 from chugui.ui.guest_model import Column, GuestFilterProxy, GuestTableModel
-from chugui.ui.theme import Size, Space, build_stylesheet, palette_for
+from chugui.ui.quest_widgets import QuestBar, QuestLogDialog
+from chugui.ui.theme import PALETTE, Palette, Size, Space, apply_application_theme
 from chugui.ui.widgets import DropTextEdit, EmptyState, MetricCard, ToastNotification
 
 logger = logging.getLogger(__name__)
@@ -127,6 +135,7 @@ class MainWindow(QMainWindow):
 
         self._config: AppConfig = self._config_repo.load()
         self._messages = MessageService(self._template_repo.load())
+        self._tracker = QuestTracker(self._config.quests)
 
         self._model = GuestTableModel(self._messages, self)
         self._proxy = GuestFilterProxy(self)
@@ -171,6 +180,11 @@ class MainWindow(QMainWindow):
         self._toast = ToastNotification(self)
         self._apply_toast_palette()
 
+        # 다음 단계에서 쓸 버튼·영역에 테두리를 둘러 '다음에 누를 곳' 을 알려 준다.
+        self._quest_target: QWidget | None = None
+        self._quests_ready = True
+        self._refresh_quests()
+
         self._model.guestsChanged.connect(self._on_guests_changed)
         self._proxy.rowsInserted.connect(self._update_empty_state)
         self._proxy.rowsRemoved.connect(self._update_empty_state)
@@ -189,6 +203,9 @@ class MainWindow(QMainWindow):
         root.setSpacing(Space.MD)
 
         root.addLayout(self._build_header())
+        self._quest_bar = QuestBar()
+        self._quest_bar.logRequested.connect(self._open_quest_log)
+        root.addWidget(self._quest_bar)
         root.addLayout(self._build_kpi_row())
         root.addWidget(self._build_settings_strip())
         root.addWidget(self._build_review_banner())
@@ -215,12 +232,12 @@ class MainWindow(QMainWindow):
         version = QLabel(f"v{__version__}")
         version.setObjectName("appVersion")
 
-        self._btn_theme = QPushButton()
-        self._btn_theme.setObjectName("ghost")
-        self._btn_theme.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_theme.setToolTip("밝은 화면과 어두운 화면을 전환합니다.")
-        self._btn_theme.setAccessibleName("테마 전환")
-        self._btn_theme.clicked.connect(self._toggle_theme)
+        self._btn_fullscreen = QPushButton("전체 화면")
+        self._btn_fullscreen.setObjectName("ghost")
+        self._btn_fullscreen.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_fullscreen.setToolTip("창을 화면 전체로 키웁니다.  (F11, 나가기: Esc)")
+        self._btn_fullscreen.setAccessibleName("전체 화면")
+        self._btn_fullscreen.clicked.connect(self._toggle_fullscreen)
 
         btn_templates = QPushButton("인사말 템플릿")
         btn_templates.setObjectName("ghost")
@@ -247,7 +264,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(title)
         layout.addWidget(version)
         layout.addStretch()
-        layout.addWidget(self._btn_theme)
+        layout.addWidget(self._btn_fullscreen)
         layout.addWidget(btn_restore)
         layout.addWidget(btn_templates)
         layout.addWidget(btn_help)
@@ -286,6 +303,7 @@ class MainWindow(QMainWindow):
         strip.setObjectName("card")
         strip.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         strip.setAccessibleName("식대 단가 설정")
+        self._meal_strip = strip
 
         layout = QHBoxLayout(strip)
         layout.setContentsMargins(Space.MD, Space.SM, Space.MD, Space.SM)
@@ -392,12 +410,9 @@ class MainWindow(QMainWindow):
             hint_layout.addWidget(label)
 
         self._input = DropTextEdit()
-        self._input.setPlaceholderText(
-            "카톡이나 메모장에 적어둔 축의금 내역을 그대로 붙여넣으세요.\n\n"
-            "1 홍길동 200,000 친척모임\n"
-            "2 최동료 100,000 A보건지소 식권2\n"
-            "3 김가족,김친지 300,000 이모"
-        )
+        # Qt 6 은 자리표시 문구를 한 줄로만 그린다(여러 줄이면 첫 줄만 보이고 잘린다).
+        # 입력 예시는 바로 위 안내 상자에 있으므로 여기는 한 줄로 충분하다.
+        self._input.setPlaceholderText("카톡·메모장 명단을 그대로 붙여넣으세요.")
         self._input.setToolTip("자유 형식으로 붙여넣으면 됩니다. 양식을 맞출 필요 없습니다.")
         self._input.setAccessibleName("축의금 명단 입력")
         self._input.textChanged.connect(self._on_input_changed)
@@ -418,6 +433,7 @@ class MainWindow(QMainWindow):
         btn_parse.setToolTip("입력한 텍스트를 표로 변환합니다.  (Ctrl+Enter)")
         btn_parse.setAccessibleName("자동 취합 및 파싱")
         btn_parse.clicked.connect(self._handle_parse)
+        self._btn_parse = btn_parse
 
         self._btn_append = QPushButton("기존 목록에 추가")
         self._btn_append.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -428,7 +444,10 @@ class MainWindow(QMainWindow):
 
         btn_file = QPushButton("엑셀 · CSV 불러오기")
         btn_file.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_file.setToolTip("은행 거래내역 등을 기존 목록에 합칩니다.")
+        btn_file.setToolTip(
+            "은행 거래내역 등을 기존 목록에 합칩니다.\n"
+            "[엑셀로 내보내기]로 저장한 파일을 엑셀에서 고쳐 불러오면 고친 내용으로 바뀝니다."
+        )
         btn_file.setAccessibleName("엑셀 또는 CSV 불러오기")
         btn_file.clicked.connect(self._handle_open_file)
 
@@ -516,13 +535,30 @@ class MainWindow(QMainWindow):
         btn_export = QPushButton("엑셀로 내보내기")
         btn_export.setObjectName("success")
         btn_export.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_export.setToolTip("명단과 정산 요약을 xlsx 파일로 저장합니다.  (Ctrl+S)")
+        btn_export.setToolTip(
+            "명단과 정산 요약을 xlsx 파일로 저장합니다.  (Ctrl+S)\n"
+            "엑셀에서 고친 뒤 [엑셀 · CSV 불러오기]로 다시 올리면 그대로 반영됩니다."
+        )
         btn_export.setAccessibleName("엑셀로 내보내기")
         btn_export.clicked.connect(self._handle_export)
+        self._btn_export = btn_export
+
+        btn_text = QPushButton("텍스트로 내보내기")
+        btn_text.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_text.setToolTip(
+            "명단과 정산 요약을 글로 뽑습니다. 카톡에 붙여넣거나 .txt 로 저장합니다.  (Ctrl+Shift+S)"
+        )
+        btn_text.setAccessibleName("텍스트로 내보내기")
+        btn_text.clicked.connect(self._handle_text_export)
+        self._btn_text_export = btn_text
 
         layout.addLayout(header)
         layout.addWidget(self._table_stack, 1)
-        layout.addWidget(btn_export)
+        export_row = QHBoxLayout()
+        export_row.setSpacing(Space.SM)
+        export_row.addWidget(btn_export, 3)
+        export_row.addWidget(btn_text, 1)
+        layout.addLayout(export_row)
         return card
 
     def _build_table(self) -> QTableView:
@@ -546,7 +582,7 @@ class MainWindow(QMainWindow):
         table.setAccessibleName("하객 목록")
         table.setToolTip("값을 더블클릭하면 직접 수정할 수 있습니다.")
 
-        palette = palette_for(self._config.dark_mode)
+        palette = self._palette()
         self._relation_delegate = RelationBadgeDelegate(palette, table)
         self._copy_delegate = CopyButtonDelegate(palette, table)
         self._copy_delegate.clicked.connect(self._on_copy_clicked)
@@ -597,24 +633,37 @@ class MainWindow(QMainWindow):
             (QKeySequence.StandardKey.Save, self._handle_export, "내보내기"),
             (QKeySequence("Ctrl+Shift+Return"), self._handle_append, "추가"),
             (QKeySequence.StandardKey.Find, lambda: self._search.setFocus(), "검색"),
+            (QKeySequence(Qt.Key.Key_F11), self._toggle_fullscreen, "전체 화면"),
+            (QKeySequence("Ctrl+Shift+S"), self._handle_text_export, "텍스트로 내보내기"),
         ):
             action = QAction(name, self)
             action.setShortcut(shortcut)
             action.triggered.connect(slot)
             self.addAction(action)
 
+        # Esc 는 전체 화면일 때만 가로챈다. 평소에는 셀 편집 취소 등에 쓰여야 한다.
+        self._esc_action = QAction("전체 화면 나가기", self)
+        self._esc_action.setShortcut(QKeySequence(Qt.Key.Key_Escape))
+        self._esc_action.triggered.connect(self._leave_fullscreen)
+        self._esc_action.setEnabled(False)
+        self.addAction(self._esc_action)
+
     # -------------------------------------------------------------- 테마
 
+    def _palette(self) -> Palette:
+        return PALETTE
+
     def _apply_theme(self) -> None:
-        palette = palette_for(self._config.dark_mode)
-        self.setStyleSheet(build_stylesheet(palette))
-        self._btn_theme.setText("☀  라이트" if self._config.dark_mode else "🌙  다크")
+        palette = self._palette()
+        apply_application_theme(palette)
+        if hasattr(self, "_quest_bar"):
+            self._quest_bar.apply_palette(palette)
 
         if hasattr(self, "_relation_delegate"):
             self._relation_delegate.set_palette(palette)
             self._copy_delegate.set_palette(palette)
             review_color = QColor(palette.warning_surface)
-            review_color.setAlpha(150 if self._config.dark_mode else 210)
+            review_color.setAlpha(150)
             self._model.set_review_color(review_color)
             self._table.viewport().update()
         if hasattr(self, "_toast"):
@@ -622,13 +671,38 @@ class MainWindow(QMainWindow):
         self._refresh_summary()
 
     def _apply_toast_palette(self) -> None:
-        palette = palette_for(self._config.dark_mode)
+        palette = self._palette()
         self._toast.apply_palette(palette.surface, palette.text, palette.border_strong, palette.accent)
 
-    def _toggle_theme(self) -> None:
-        self._config.dark_mode = not self._config.dark_mode
-        self._apply_theme()
-        self._schedule_config_save()
+    # ------------------------------------------------------------ 전체 화면
+
+    def _toggle_fullscreen(self) -> None:
+        if self.isFullScreen():
+            self._leave_fullscreen()
+        else:
+            self._was_maximized = self.isMaximized()
+            self.showFullScreen()
+        self._update_fullscreen_button()
+
+    def _leave_fullscreen(self) -> None:
+        if not self.isFullScreen():
+            return
+        # 전체 화면 전에 최대화였으면 최대화로, 아니면 원래 크기로 돌아간다.
+        if getattr(self, "_was_maximized", False):
+            self.showMaximized()
+        else:
+            self.showNormal()
+        self._update_fullscreen_button()
+
+    def _update_fullscreen_button(self) -> None:
+        full = self.isFullScreen()
+        self._esc_action.setEnabled(full)
+        self._btn_fullscreen.setText("창 모드" if full else "전체 화면")
+        self._btn_fullscreen.setToolTip(
+            "원래 창 크기로 돌아갑니다.  (F11 또는 Esc)"
+            if full
+            else "창을 화면 전체로 키웁니다.  (F11, 나가기: Esc)"
+        )
 
     # ------------------------------------------------------------ 데이터
 
@@ -709,7 +783,8 @@ class MainWindow(QMainWindow):
 
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            incoming = parse_spreadsheet(path, source=source)
+            result_file = read_spreadsheet(path, source=source)
+            incoming = result_file.guests
         except ExcelParseError as exc:
             QMessageBox.warning(self, "파일을 읽을 수 없습니다", str(exc))
             return
@@ -724,6 +799,10 @@ class MainWindow(QMainWindow):
             self._toast.show_message("가져올 데이터가 없습니다.")
             return
 
+        if result_file.is_export:
+            self._replace_from_export(path, incoming)
+            return
+
         self._begin_destructive("파일 병합 전")
         result = merge_guests(self._model.guests, incoming, skip_exact_duplicates=False)
         self._model.set_guests(result.guests)
@@ -731,6 +810,35 @@ class MainWindow(QMainWindow):
         self._offer_undo(f"{path.name} · {result.summary}")
         if result.duplicate_count:
             self._chk_review.setChecked(True)
+
+    def _replace_from_export(self, path: Path, incoming: list[Guest]) -> None:
+        """내보낸 명단을 엑셀에서 고쳐 다시 불러왔다. 병합하지 않고 **교체**한다.
+
+        같은 사람들이 다시 들어오는 것이므로 병합하면 목록이 두 배가 되고
+        전부 '중복 의심' 으로 표시된다. 엑셀에서 고친 값이 정답이다.
+        """
+        if self._model.guests and not self._confirm_export_replace(len(incoming)):
+            return
+        self._begin_destructive("엑셀 다시 불러오기 전")
+        self._model.set_guests(incoming)
+        review = sum(1 for guest in incoming if guest.needs_review)
+        message = f"{path.name} · 엑셀에서 고친 내용 {len(incoming)}건 반영"
+        if review:
+            message += f" · 확인 필요 {review}건"
+        self._offer_undo(message)
+
+    def _confirm_export_replace(self, incoming_count: int) -> bool:
+        answer = QMessageBox.question(
+            self,
+            "내보낸 명단 다시 불러오기",
+            f"이 프로그램에서 내보낸 명단 파일입니다.\n"
+            f"현재 목록 {len(self._model.guests)}건을 파일의 {incoming_count}건으로 바꿀까요?\n\n"
+            "엑셀에서 고친 금액·관계·참석·발송 여부가 그대로 반영됩니다. "
+            "바꾼 뒤에도 알림의 '되돌리기'로 되돌릴 수 있습니다.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        return answer == QMessageBox.StandardButton.Yes
 
     def _handle_sample(self) -> None:
         self._begin_destructive("샘플 불러오기 전")
@@ -773,10 +881,17 @@ class MainWindow(QMainWindow):
         QApplication.clipboard().setText(message)
         # 복사는 '보냄'이 아니다. 발송 여부는 사용자가 직접 체크한다.
         self._toast.show_message(f"{guest.name} 인사말 복사됨 · Ctrl+V 로 붙여넣어 발송하세요")
+        self._apply_quest_update(self._tracker.mark("copy"))
 
     def _on_meal_cost_changed(self) -> None:
+        changed = (self._config.adult_meal, self._config.child_meal) != (
+            self._spin_adult.value(),
+            self._spin_child.value(),
+        )
         self._config.adult_meal = self._spin_adult.value()
         self._config.child_meal = self._spin_child.value()
+        if changed:
+            self._apply_quest_update(self._tracker.mark("meal"))
         self._refresh_summary()
         self._schedule_config_save()
 
@@ -822,7 +937,7 @@ class MainWindow(QMainWindow):
     def _refresh_summary(self) -> None:
         if not hasattr(self, "_card_total"):
             return
-        palette = palette_for(self._config.dark_mode)
+        palette = self._palette()
         result = self._current_settlement()
 
         self._card_total.set_value(f"{result.total_amount:,}원", palette.text)
@@ -850,6 +965,7 @@ class MainWindow(QMainWindow):
 
         self._update_review_banner(result)
         self._update_status_bar(result)
+        self._observe_quests(result)
 
     def _update_review_banner(self, result: Settlement) -> None:
         if result.review_count:
@@ -916,6 +1032,7 @@ class MainWindow(QMainWindow):
     def _on_input_changed(self) -> None:
         self._schedule_autosave()
         self._preview_timer.start()
+        self._observe_quests(self._current_settlement())
 
     def _update_preview(self) -> None:
         """입력창 아래에 해석 결과를 요약해 보여 준다."""
@@ -961,6 +1078,65 @@ class MainWindow(QMainWindow):
         self._offer_undo(f"{result.summary} · 총 {len(result.guests)}건")
         if result.duplicate_count:
             self._chk_review.setChecked(True)
+
+    # ------------------------------------------------------------ 단계 안내
+
+    def _observe_quests(self, result: Settlement) -> None:
+        if not hasattr(self, "_tracker") or not hasattr(self, "_quest_bar"):
+            return
+        snapshot = QuestSnapshot(
+            has_input=bool(self._input.toPlainText().strip()),
+            guest_count=result.guest_count,
+            review_count=result.review_count,
+            sent_count=result.sent_count,
+        )
+        self._apply_quest_update(self._tracker.observe(snapshot))
+
+    def _apply_quest_update(self, done: tuple[Quest, ...]) -> None:
+        # 진행 상황을 먼저 갱신해야 완료 문구의 '다음:' 이 새 단계를 가리킨다.
+        self._refresh_quests()
+        if done:
+            self._quest_bar.announce_done(done)
+            self._config.quests = self._tracker.cleared_keys
+            self._schedule_config_save()
+
+    def _refresh_quests(self) -> None:
+        if not hasattr(self, "_quests_ready"):
+            return  # 생성자 도중. 준비가 끝나면 다시 불린다.
+        progress = self._tracker.progress()
+        self._quest_bar.set_progress(progress)
+        targets: dict[str, QWidget] = {
+            "input": self._input,
+            "parse": self._btn_parse,
+            "table": self._table,
+            "meal": self._meal_strip,
+            "export": self._btn_export,
+        }
+        target = targets.get(progress.current.target) if progress.current else None
+        if target is not self._quest_target:
+            self._set_quest_highlight(self._quest_target, False)
+            self._set_quest_highlight(target, True)
+            self._quest_target = target
+
+    @staticmethod
+    def _set_quest_highlight(widget: QWidget | None, on: bool) -> None:
+        if widget is None:
+            return
+        widget.setProperty("questTarget", "on" if on else "off")
+        # 동적 속성은 다시 polish 해야 스타일시트에 반영된다.
+        widget.style().unpolish(widget)
+        widget.style().polish(widget)
+        widget.update()
+
+    def _open_quest_log(self) -> None:
+        dialog = QuestLogDialog(self._tracker, self)
+        dialog.exec()
+        if dialog.reset_requested:
+            self._tracker.reset()
+            self._config.quests = []
+            self._schedule_config_save()
+            self._refresh_quests()
+            self._toast.show_message("단계 안내를 처음부터 다시 보여 드립니다.")
 
     # ------------------------------------------------- 스냅샷 · 되돌리기
 
@@ -1018,9 +1194,23 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("자동 저장에 실패했습니다. 로그를 확인해 주세요.", 8000)
 
     def _save_config(self) -> None:
-        self._config.window_width = self.width()
-        self._config.window_height = self.height()
+        # 최대화 · 전체 화면일 때의 크기는 화면 크기일 뿐이다. 그걸 저장하면
+        # 다음 실행에서 화면만 한 '보통 창' 이 열린다. 보통 크기만 기억한다.
+        if self.isFullScreen():
+            self._config.maximized = getattr(self, "_was_maximized", False)
+        else:
+            self._config.maximized = self.isMaximized()
+            if not self.isMaximized():
+                self._config.window_width = self.width()
+                self._config.window_height = self.height()
         self._config_repo.save(self._config)
+
+    def show_initial(self) -> None:
+        """지난번 창 상태(최대화 여부)대로 띄운다."""
+        if self._config.maximized:
+            self.showMaximized()
+        else:
+            self.show()
 
     # -------------------------------------------------------------- 내보내기
 
@@ -1055,6 +1245,37 @@ class MainWindow(QMainWindow):
             QApplication.restoreOverrideCursor()
 
         self._toast.show_message("엑셀 저장 완료")
+        self._apply_quest_update(self._tracker.mark("export"))
+        self.statusBar().showMessage(f"저장됨: {file_path}", 8000)
+
+    def _handle_text_export(self) -> None:
+        if not self._model.guests:
+            self._toast.show_message("내보낼 데이터가 없습니다.")
+            return
+        text = export_text(self._model.guests, self._current_settlement())
+        dialog = TextExportDialog(text, self)
+        dialog.exec()
+        if dialog.save_requested:
+            self._save_text_file(text)
+
+    def _save_text_file(self, text: str) -> None:
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "텍스트로 저장", "축의금_정산.txt", "텍스트 파일 (*.txt)"
+        )
+        if not file_path:
+            return
+        if not file_path.lower().endswith(".txt"):
+            file_path += ".txt"
+        try:
+            # BOM 을 붙여야 오래된 메모장도 한글을 깨뜨리지 않는다.
+            Path(file_path).write_text(text, encoding="utf-8-sig")
+        except OSError as exc:
+            logger.exception("텍스트 저장 실패")
+            QMessageBox.warning(
+                self, "저장할 수 없습니다", f"텍스트 파일을 저장하지 못했습니다:\n{exc}"
+            )
+            return
+        self._toast.show_message("텍스트 저장 완료")
         self.statusBar().showMessage(f"저장됨: {file_path}", 8000)
 
     # ------------------------------------------------------------ 이벤트
@@ -1064,6 +1285,11 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_toast"):
             self._toast.reposition()
         self._schedule_config_save()
+
+    def changeEvent(self, event) -> None:  # noqa: N802
+        super().changeEvent(event)
+        if hasattr(self, "_btn_fullscreen"):
+            self._update_fullscreen_button()
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
         # 디바운스 타이머가 아직 돌고 있을 수 있으므로 즉시 저장한다.

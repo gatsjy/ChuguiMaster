@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterator
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from chugui.parsing.tickets import strip_ticket_tokens
@@ -34,7 +35,10 @@ _UNIT_RANK: dict[str, int] = {unit: rank for rank, unit in enumerate(_UNITS)}
 
 # 단위 대체 표기는 정규식 교대에서 반드시 긴 것부터 와야 한다("천만"이 "천"보다 앞).
 # 단위 뒤에 일반 한글 단어가 이어지면(예: "천안") 단위가 아닌 단어의 일부로 판단한다.
-_NUM_UNIT_RE = re.compile(r"(\d[\d,]*)\s*(억|천만|백만|십만|만|천)?(원)?(?![가-힣A-Za-z])")
+# 소수점도 숫자의 일부로 읽는다. 예전에는 '1.5만' 이 '1' 과 '5만' 으로 쪼개져 50,000원이 됐다.
+_NUM_UNIT_RE = re.compile(r"(\d[\d,]*(?:\.\d+)*)\s*(억|천만|백만|십만|만|천)?(원)?(?![가-힣A-Za-z])")
+#: '100.000원' 처럼 점을 천 단위 구분자로 쓴 표기.
+_DOT_THOUSANDS_RE = re.compile(r"\d{1,3}(?:\.\d{3})+")
 
 # --- 금액이 아닌 숫자를 제거하기 위한 패턴들 -------------------------------
 # 식권 표기 제거는 :mod:`chugui.parsing.tickets` 가 담당한다.
@@ -57,6 +61,18 @@ def strip_non_amount_numbers(text: str) -> str:
     return cleaned
 
 
+def _to_number(digits: str, unit: str | None) -> int | None:
+    """숫자 표기를 원 단위 정수로 바꾼다. 해석할 수 없으면 ``None``."""
+    text = digits.replace(",", "")
+    if unit is None and _DOT_THOUSANDS_RE.fullmatch(text):
+        return int(text.replace(".", ""))
+    try:
+        value = Decimal(text) * _UNITS.get(unit or "", 1)
+    except InvalidOperation:
+        return None  # '1.2.3' 처럼 점이 여러 개인데 천 단위 구분도 아닌 경우
+    return int(value.to_integral_value())
+
+
 def iter_amount_candidates(text: str) -> Iterator[int]:
     """문자열에서 금액 후보를 순서대로 산출한다.
 
@@ -69,13 +85,10 @@ def iter_amount_candidates(text: str) -> Iterator[int]:
 
     for match in _NUM_UNIT_RE.finditer(text):
         digits, unit, won = match.group(1), match.group(2), match.group(3)
-        try:
-            number = int(digits.replace(",", ""))
-        except ValueError:  # pragma: no cover - 정규식상 도달 불가
-            continue
-
         if unit in _UNITS:
-            value = number * _UNITS[unit]
+            value = _to_number(digits, unit)
+            if value is None:
+                continue
             rank = _UNIT_RANK[unit]
             if accumulator and rank > last_rank:
                 accumulator += value  # "10만" + "5천"
@@ -88,6 +101,9 @@ def iter_amount_candidates(text: str) -> Iterator[int]:
             continue
 
         # 단위 없는 숫자 또는 "…원"
+        number = _to_number(digits, None)
+        if number is None:
+            continue
         if accumulator and 0 < number < last_multiplier:
             accumulator += number  # "10만 5000원"
             continue
