@@ -80,11 +80,11 @@ def parse_line(line: str, line_number: int = 1) -> Guest | None:
         names=names,
         aliases=aliases,
         amount=amount,
-        relation=guess_relation(
+        relation=(layout.relation if layout is not None and layout.relation is not None else guess_relation(
             belong,
             strip_person_names(name_source, names) if name_found else name_source,
             strip_person_names(text, names) if name_found else text,
-        ),
+        )),
         attendance=attendance,
         payment=Payment.TRANSFER if _TRANSFER_RE.search(text) else Payment.CASH,
         adult_tickets=adult_tickets,

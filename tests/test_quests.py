@@ -113,3 +113,11 @@ class TestGuideBar:
         text = window._quest_bar.title_text
         for word in ("QUEST", "XP", "LEVEL", "CLEAR", "LV."):
             assert word not in text
+
+    def test_done_message_points_to_the_real_next_step(self, window, qt_app):
+        """완료 알림의 '다음:' 이 이미 끝난 단계를 가리키던 버그."""
+        window._handle_sample()
+        qt_app.processEvents()
+        hint = window._quest_bar._hint.text()
+        assert hint == f"다음: {window._tracker.progress().current.title}"
+        assert "표로 변환" not in hint

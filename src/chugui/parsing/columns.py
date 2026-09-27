@@ -19,6 +19,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from chugui.models import Relation
 from chugui.parsing.amount import extract_amount
 
 _TAB_RE = re.compile(r"\t+")
@@ -27,6 +28,15 @@ _WIDE_SPACE_RE = re.compile(r"[ 　]{2,}")
 
 #: 열이 이 개수를 넘으면 표가 아니라 정렬된 산문으로 보고 포기한다.
 _MAX_COLUMNS = 8
+
+#: 소속이 아니라 상태를 적은 열. 참석 · 수령경로 · 식권은 파서가 줄 전체에서 따로 읽으므로
+#: 소속 칸에 넣으면 '불참 계좌' 같은 값이 소속으로 남는다.
+_STATUS_FIELD_RE = re.compile(
+    r"^(불참|미참|참석|계좌|계좌이체|이체|송금|현금"
+    r"|(식권|식대|대인|성인|소인|어린이|아동)\s*\d{1,2}(\s*(소인|어린이|아동)\s*\d{1,2})?)$"
+)
+#: '친척/가족' 처럼 관계 이름을 그대로 적은 열(텍스트로 내보낸 명단 등).
+_RELATION_LABELS = frozenset(relation.value for relation in Relation)
 
 
 def split_columns(line: str) -> list[str] | None:
@@ -57,6 +67,8 @@ class ColumnLayout:
     name_index: int
     amount_index: int | None
     belong: str
+    #: 관계 이름을 그대로 적은 열이 있으면 그 관계. 추정보다 우선한다.
+    relation: Relation | None = None
 
     @property
     def name_field(self) -> str:
@@ -98,14 +110,22 @@ def classify_columns(fields: list[str]) -> ColumnLayout:
         (index for index, field in enumerate(fields) if index != amount_index and field),
         0,
     )
-    belong = " ".join(
+    rest = [
         field
         for index, field in enumerate(fields)
         if field and index not in (name_index, amount_index)
+    ]
+    relation = next((Relation(field) for field in rest if field in _RELATION_LABELS), None)
+    belong = " ".join(
+        field for field in rest if field not in _RELATION_LABELS and not _STATUS_FIELD_RE.match(field)
     ).strip()
 
     return ColumnLayout(
-        fields=fields, name_index=name_index, amount_index=amount_index, belong=belong
+        fields=fields,
+        name_index=name_index,
+        amount_index=amount_index,
+        belong=belong,
+        relation=relation,
     )
 
 

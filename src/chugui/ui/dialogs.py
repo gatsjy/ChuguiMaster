@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QApplication,
     QDialog,
     QDialogButtonBox,
     QHBoxLayout,
@@ -11,6 +12,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
     QScrollArea,
     QTabWidget,
@@ -314,4 +316,80 @@ class SnapshotRestoreDialog(QDialog):
             self.reject()
             return
         self._selected = item.data(Qt.ItemDataRole.UserRole)
+        self.accept()
+
+
+class TextExportDialog(QDialog):
+    """명단과 정산을 글로 보여 주고 복사 · 저장하게 한다.
+
+    파일로 저장하는 일은 호출자가 한다(대화상자는 파일 다이얼로그를 띄우지 않는다).
+    그래야 테스트가 대화상자만 따로 검증할 수 있다.
+    """
+
+    def __init__(self, text: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("텍스트로 내보내기")
+        self.resize(640, 560)
+        self._text = text
+        self.save_requested = False
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(10)
+
+        title = QLabel("텍스트로 내보내기")
+        title.setObjectName("sectionTitle")
+        hint = QLabel(
+            "카톡이나 메모장에 그대로 붙여넣을 수 있습니다.\n"
+            "이 글을 입력창에 다시 붙여넣으면 같은 명단으로 읽힙니다('#' 줄은 요약이라 건너뜁니다)."
+        )
+        hint.setObjectName("hint")
+        hint.setWordWrap(True)
+        hint.setTextFormat(Qt.TextFormat.PlainText)
+
+        self._preview = QPlainTextEdit(text)
+        self._preview.setReadOnly(True)
+        self._preview.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self._preview.setAccessibleName("내보낼 텍스트 미리보기")
+        self._preview.setToolTip("내보낼 내용입니다. 일부만 골라 복사할 수도 있습니다.")
+
+        buttons = QHBoxLayout()
+        copy = QPushButton("클립보드에 복사")
+        copy.setObjectName("primary")
+        copy.setCursor(Qt.CursorShape.PointingHandCursor)
+        copy.setAccessibleName("클립보드에 복사")
+        copy.setToolTip("전체 내용을 복사합니다. 카톡 창에서 Ctrl+V")
+        copy.clicked.connect(self._copy)
+        save = QPushButton("파일로 저장 (.txt)")
+        save.setCursor(Qt.CursorShape.PointingHandCursor)
+        save.setAccessibleName("텍스트 파일로 저장")
+        save.setToolTip("메모장에서 열 수 있는 .txt 파일로 저장합니다.")
+        save.clicked.connect(self._request_save)
+        close = QPushButton("닫기")
+        close.setAccessibleName("닫기")
+        close.clicked.connect(self.reject)
+        buttons.addWidget(copy)
+        buttons.addWidget(save)
+        buttons.addStretch()
+        buttons.addWidget(close)
+
+        self._status = QLabel("")
+        self._status.setObjectName("hint")
+
+        layout.addWidget(title)
+        layout.addWidget(hint)
+        layout.addWidget(self._preview, 1)
+        layout.addWidget(self._status)
+        layout.addLayout(buttons)
+
+    @property
+    def text(self) -> str:
+        return self._text
+
+    def _copy(self) -> None:
+        QApplication.clipboard().setText(self._text)
+        self._status.setText("복사했습니다. 카톡이나 메모장에서 Ctrl+V 로 붙여넣으세요.")
+
+    def _request_save(self) -> None:
+        self.save_requested = True
         self.accept()
