@@ -50,8 +50,8 @@ from PySide6.QtWidgets import (
 )
 
 from chugui import __version__
-from chugui.models import Relation, Source
-from chugui.parsing.excel_parser import ExcelParseError, parse_spreadsheet
+from chugui.models import Guest, Relation, Source
+from chugui.parsing.excel_parser import ExcelParseError, read_spreadsheet
 from chugui.parsing.text_parser import parse_text
 from chugui.samples import SAMPLE_TEXT
 from chugui.services.exporter import export_to_excel
@@ -398,6 +398,7 @@ class MainWindow(QMainWindow):
             "홍길동 10만원 친척      김가족,김친지 30만 이모",
             "최동료 10만 식권2 소인1      박지성 5만원 불참",
             "엑셀(.xlsx) · CSV 를 끌어다 놓으면 기존 목록에 합쳐집니다.",
+            "내보낸 엑셀을 고쳐서 다시 올리면 고친 내용으로 바뀝니다.",
         ):
             label = QLabel(line)
             label.setObjectName("hint")
@@ -442,7 +443,10 @@ class MainWindow(QMainWindow):
 
         btn_file = QPushButton("엑셀 · CSV 불러오기")
         btn_file.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_file.setToolTip("은행 거래내역 등을 기존 목록에 합칩니다.")
+        btn_file.setToolTip(
+            "은행 거래내역 등을 기존 목록에 합칩니다.\n"
+            "[엑셀로 내보내기]로 저장한 파일을 엑셀에서 고쳐 불러오면 고친 내용으로 바뀝니다."
+        )
         btn_file.setAccessibleName("엑셀 또는 CSV 불러오기")
         btn_file.clicked.connect(self._handle_open_file)
 
@@ -530,7 +534,10 @@ class MainWindow(QMainWindow):
         btn_export = QPushButton("엑셀로 내보내기")
         btn_export.setObjectName("success")
         btn_export.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_export.setToolTip("명단과 정산 요약을 xlsx 파일로 저장합니다.  (Ctrl+S)")
+        btn_export.setToolTip(
+            "명단과 정산 요약을 xlsx 파일로 저장합니다.  (Ctrl+S)\n"
+            "엑셀에서 고친 뒤 [엑셀 · CSV 불러오기]로 다시 올리면 그대로 반영됩니다."
+        )
         btn_export.setAccessibleName("엑셀로 내보내기")
         btn_export.clicked.connect(self._handle_export)
         self._btn_export = btn_export
@@ -735,7 +742,8 @@ class MainWindow(QMainWindow):
 
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            incoming = parse_spreadsheet(path, source=source)
+            result_file = read_spreadsheet(path, source=source)
+            incoming = result_file.guests
         except ExcelParseError as exc:
             QMessageBox.warning(self, "파일을 읽을 수 없습니다", str(exc))
             return
@@ -750,6 +758,10 @@ class MainWindow(QMainWindow):
             self._toast.show_message("가져올 데이터가 없습니다.")
             return
 
+        if result_file.is_export:
+            self._replace_from_export(path, incoming)
+            return
+
         self._begin_destructive("파일 병합 전")
         result = merge_guests(self._model.guests, incoming, skip_exact_duplicates=False)
         self._model.set_guests(result.guests)
@@ -757,6 +769,35 @@ class MainWindow(QMainWindow):
         self._offer_undo(f"{path.name} · {result.summary}")
         if result.duplicate_count:
             self._chk_review.setChecked(True)
+
+    def _replace_from_export(self, path: Path, incoming: list[Guest]) -> None:
+        """내보낸 명단을 엑셀에서 고쳐 다시 불러왔다. 병합하지 않고 **교체**한다.
+
+        같은 사람들이 다시 들어오는 것이므로 병합하면 목록이 두 배가 되고
+        전부 '중복 의심' 으로 표시된다. 엑셀에서 고친 값이 정답이다.
+        """
+        if self._model.guests and not self._confirm_export_replace(len(incoming)):
+            return
+        self._begin_destructive("엑셀 다시 불러오기 전")
+        self._model.set_guests(incoming)
+        review = sum(1 for guest in incoming if guest.needs_review)
+        message = f"{path.name} · 엑셀에서 고친 내용 {len(incoming)}건 반영"
+        if review:
+            message += f" · 확인 필요 {review}건"
+        self._offer_undo(message)
+
+    def _confirm_export_replace(self, incoming_count: int) -> bool:
+        answer = QMessageBox.question(
+            self,
+            "내보낸 명단 다시 불러오기",
+            f"이 프로그램에서 내보낸 명단 파일입니다.\n"
+            f"현재 목록 {len(self._model.guests)}건을 파일의 {incoming_count}건으로 바꿀까요?\n\n"
+            "엑셀에서 고친 금액·관계·참석·발송 여부가 그대로 반영됩니다. "
+            "바꾼 뒤에도 알림의 '되돌리기'로 되돌릴 수 있습니다.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        return answer == QMessageBox.StandardButton.Yes
 
     def _handle_sample(self) -> None:
         self._begin_destructive("샘플 불러오기 전")
