@@ -59,6 +59,7 @@ from chugui.services.merge import merge_guests
 from chugui.services.messages import MessageService
 from chugui.services.quests import Quest, QuestSnapshot, QuestTracker
 from chugui.services.settlement import Settlement, settle
+from chugui.services.text_export import export_text
 from chugui.storage.crash import CrashSentinel
 from chugui.storage.repositories import (
     AppConfig,
@@ -75,7 +76,12 @@ from chugui.ui.delegates import (
     TicketSpinDelegate,
     install_hover_tracking,
 )
-from chugui.ui.dialogs import HelpDialog, SnapshotRestoreDialog, TemplateSettingsDialog
+from chugui.ui.dialogs import (
+    HelpDialog,
+    SnapshotRestoreDialog,
+    TemplateSettingsDialog,
+    TextExportDialog,
+)
 from chugui.ui.guest_model import Column, GuestFilterProxy, GuestTableModel
 from chugui.ui.quest_widgets import QuestBar, QuestLogDialog
 from chugui.ui.theme import PALETTE, Palette, Size, Space, apply_application_theme
@@ -537,9 +543,22 @@ class MainWindow(QMainWindow):
         btn_export.clicked.connect(self._handle_export)
         self._btn_export = btn_export
 
+        btn_text = QPushButton("텍스트로 내보내기")
+        btn_text.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_text.setToolTip(
+            "명단과 정산 요약을 글로 뽑습니다. 카톡에 붙여넣거나 .txt 로 저장합니다.  (Ctrl+Shift+S)"
+        )
+        btn_text.setAccessibleName("텍스트로 내보내기")
+        btn_text.clicked.connect(self._handle_text_export)
+        self._btn_text_export = btn_text
+
         layout.addLayout(header)
         layout.addWidget(self._table_stack, 1)
-        layout.addWidget(btn_export)
+        export_row = QHBoxLayout()
+        export_row.setSpacing(Space.SM)
+        export_row.addWidget(btn_export, 3)
+        export_row.addWidget(btn_text, 1)
+        layout.addLayout(export_row)
         return card
 
     def _build_table(self) -> QTableView:
@@ -615,6 +634,7 @@ class MainWindow(QMainWindow):
             (QKeySequence("Ctrl+Shift+Return"), self._handle_append, "추가"),
             (QKeySequence.StandardKey.Find, lambda: self._search.setFocus(), "검색"),
             (QKeySequence(Qt.Key.Key_F11), self._toggle_fullscreen, "전체 화면"),
+            (QKeySequence("Ctrl+Shift+S"), self._handle_text_export, "텍스트로 내보내기"),
         ):
             action = QAction(name, self)
             action.setShortcut(shortcut)
@@ -1073,11 +1093,12 @@ class MainWindow(QMainWindow):
         self._apply_quest_update(self._tracker.observe(snapshot))
 
     def _apply_quest_update(self, done: tuple[Quest, ...]) -> None:
+        # 진행 상황을 먼저 갱신해야 완료 문구의 '다음:' 이 새 단계를 가리킨다.
+        self._refresh_quests()
         if done:
             self._quest_bar.announce_done(done)
             self._config.quests = self._tracker.cleared_keys
             self._schedule_config_save()
-        self._refresh_quests()
 
     def _refresh_quests(self) -> None:
         if not hasattr(self, "_quests_ready"):
@@ -1225,6 +1246,36 @@ class MainWindow(QMainWindow):
 
         self._toast.show_message("엑셀 저장 완료")
         self._apply_quest_update(self._tracker.mark("export"))
+        self.statusBar().showMessage(f"저장됨: {file_path}", 8000)
+
+    def _handle_text_export(self) -> None:
+        if not self._model.guests:
+            self._toast.show_message("내보낼 데이터가 없습니다.")
+            return
+        text = export_text(self._model.guests, self._current_settlement())
+        dialog = TextExportDialog(text, self)
+        dialog.exec()
+        if dialog.save_requested:
+            self._save_text_file(text)
+
+    def _save_text_file(self, text: str) -> None:
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "텍스트로 저장", "축의금_정산.txt", "텍스트 파일 (*.txt)"
+        )
+        if not file_path:
+            return
+        if not file_path.lower().endswith(".txt"):
+            file_path += ".txt"
+        try:
+            # BOM 을 붙여야 오래된 메모장도 한글을 깨뜨리지 않는다.
+            Path(file_path).write_text(text, encoding="utf-8-sig")
+        except OSError as exc:
+            logger.exception("텍스트 저장 실패")
+            QMessageBox.warning(
+                self, "저장할 수 없습니다", f"텍스트 파일을 저장하지 못했습니다:\n{exc}"
+            )
+            return
+        self._toast.show_message("텍스트 저장 완료")
         self.statusBar().showMessage(f"저장됨: {file_path}", 8000)
 
     # ------------------------------------------------------------ 이벤트
