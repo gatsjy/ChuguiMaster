@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import QModelIndex, Qt, QTimer
+from PySide6.QtCore import QEvent, QModelIndex, QObject, Qt, QTimer
 from PySide6.QtGui import (
     QAction,
     QCloseEvent,
@@ -56,7 +56,7 @@ from chugui.parsing.excel_parser import ExcelParseError, read_spreadsheet
 from chugui.parsing.text_parser import parse_text
 from chugui.samples import SAMPLE_TEXT
 from chugui.services.exporter import export_to_excel
-from chugui.services.merge import merge_guests
+from chugui.services.merge import merge_guests, sync_with_text
 from chugui.services.messages import MessageService
 from chugui.services.settlement import Settlement, settle
 from chugui.services.text_export import export_text
@@ -96,8 +96,9 @@ _ALL_RELATIONS = "전체 관계"
 
 #: 주기적 스냅샷 간격. 사람 실수를 되돌릴 지점을 꾸준히 남긴다.
 _SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000
-#: 되돌리기 토스트가 떠 있는 시간. 실수를 알아차릴 시간을 넉넉히 준다.
-_UNDO_TOAST_MS = 9000
+#: 되돌리기 토스트가 떠 있는 시간. 길면 화면을 오래 가린다는 의견을 따라 3초로 줄였다.
+#: 놓쳐도 Ctrl+Z · '이전 시점 복구' 로 되돌릴 수 있다.
+_UNDO_TOAST_MS = 3000
 #: 입력 미리보기 디바운스. 타이핑 중 매 글자 파싱하지 않는다.
 _PREVIEW_DEBOUNCE_MS = 300
 
@@ -131,6 +132,10 @@ class MainWindow(QMainWindow):
         self._crash_report = self._sentinel.arm()
         #: 직전 파괴 연산 이전 상태. 토스트의 되돌리기 버튼이 이걸 되살린다.
         self._undo_payload: dict | None = None
+        #: 표가 마지막으로 입력창과 맞춰졌을 때의 입력창 줄들. Enter 로 갱신할 때
+        #: '사용자가 지운 줄' 을 가려내는 기준이다. None 이면 표가 입력창과 무관하다
+        #: (엑셀에서 통째로 불러온 명단 등) — 이때 갱신하면 옛 글이 중복으로 들어간다.
+        self._synced_lines: list[str] | None = []
 
         self._config: AppConfig = self._config_repo.load()
         self._messages = MessageService(self._template_repo.load())
@@ -406,6 +411,7 @@ class MainWindow(QMainWindow):
         self._input.setToolTip("자유 형식으로 붙여넣으면 됩니다. 양식을 맞출 필요 없습니다.")
         self._input.setAccessibleName("축의금 명단 입력")
         self._input.textChanged.connect(self._on_input_changed)
+        self._input.installEventFilter(self)
         self._input.fileDropped.connect(self._load_file)
 
         # 파싱을 누르기 전에도 결과를 알려 준다.
@@ -714,6 +720,9 @@ class MainWindow(QMainWindow):
         if state.guests:
             self._model.set_guests(state.guests)
             self._toast.show_message(f"이전 작업을 복구했습니다 · {len(state.guests)}건")
+            # 되살린 것이 있을 때만 기준선을 바꾼다. 무조건 바꾸면 기동 직후 사용자가 한 일
+            # (예: 엑셀 다시 올리기로 끊어 둔 연결)을 덮어쓴다.
+            self._synced_lines = self._baseline_for(state.guests, self._input.toPlainText())
         self._refresh_summary()
         self._update_empty_state()
         self._report_previous_crash()
@@ -738,6 +747,7 @@ class MainWindow(QMainWindow):
             self._begin_destructive("파싱 덮어쓰기 전")
 
         self._model.set_guests(guests)
+        self._synced_lines = self._input.toPlainText().splitlines()
         review = sum(1 for guest in guests if guest.needs_review)
         message = f"{len(guests)}건 취합 완료"
         if review:
@@ -820,6 +830,7 @@ class MainWindow(QMainWindow):
             return
         self._begin_destructive("엑셀 다시 불러오기 전")
         self._model.set_guests(incoming)
+        self._synced_lines = None  # 표는 이제 파일에서 왔다. 입력창과 연결을 끊는다.
         review = sum(1 for guest in incoming if guest.needs_review)
         message = f"{path.name} · 엑셀에서 고친 내용 {len(incoming)}건 반영"
         if review:
@@ -844,6 +855,7 @@ class MainWindow(QMainWindow):
         self._input.setPlainText(SAMPLE_TEXT)
         guests = parse_text(SAMPLE_TEXT)
         self._model.set_guests(guests)
+        self._synced_lines = SAMPLE_TEXT.splitlines()
         self._offer_undo(f"샘플 {len(guests)}건을 불러왔습니다.")
 
     def _handle_clear(self) -> None:
@@ -863,6 +875,7 @@ class MainWindow(QMainWindow):
         self._begin_destructive("전체 비우기 전")
         self._input.clear()
         self._model.clear()
+        self._synced_lines = []
         self._session_repo.clear()
         self._offer_undo("모두 지웠습니다.")
 
@@ -1067,6 +1080,56 @@ class MainWindow(QMainWindow):
         self._schedule_autosave()
         self._preview_timer.start()
 
+    # ------------------------------------------------ 입력창 → 표 갱신
+
+    @staticmethod
+    def _baseline_for(guests: list[Guest], raw_text: str) -> list[str] | None:
+        """저장된 상태를 되살릴 때의 기준선. 텍스트에서 온 줄이 하나도 없으면 연결하지 않는다."""
+        if guests and not any(guest.source is Source.TEXT for guest in guests):
+            return None
+        return raw_text.splitlines()
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802
+        if (
+            watched is self._input
+            and event.type() == QEvent.Type.KeyPress
+            and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
+            and not event.modifiers() & Qt.KeyboardModifier.ControlModifier
+        ):
+            # 줄바꿈이 입력창에 들어간 다음에 반영한다.
+            QTimer.singleShot(0, self._sync_from_input)
+        return super().eventFilter(watched, event)
+
+    def _sync_from_input(self) -> None:
+        """Enter 를 칠 때마다 입력창 내용을 표에 반영한다(표에서 한 수정은 유지)."""
+        if self._synced_lines is None:
+            self.statusBar().showMessage(
+                "지금 표는 엑셀 파일에서 불러온 명단이라 입력창과 연결되어 있지 않습니다. "
+                "입력창 내용으로 새로 만들려면 Ctrl+Enter",
+                6000,
+            )
+            return
+        text = self._input.toPlainText()
+        result = sync_with_text(self._model.guests, parse_text(text), self._synced_lines)
+        self._synced_lines = text.splitlines()
+        if not result.changed:
+            return
+        if any(guest.sent_thanks for guest in result.removed):
+            # 발송 체크까지 한 줄을 지웠다. 되돌릴 지점을 남긴다.
+            self._snapshots.capture(self._current_payload(), "입력 수정 전")
+
+        bar = self._table.verticalScrollBar()
+        position = bar.value()
+        self._model.set_guests(result.guests)
+        bar.setValue(position)
+
+        parts = [f"표 갱신 · {len(result.guests)}건"]
+        if result.added:
+            parts.append(f"새 줄 {result.added}")
+        if result.removed:
+            parts.append(f"지운 줄 {len(result.removed)}")
+        self.statusBar().showMessage(" · ".join(parts), 3000)
+
     def _update_preview(self) -> None:
         """입력창 아래에 해석 결과를 요약해 보여 준다."""
         text = self._input.toPlainText().strip()
@@ -1108,6 +1171,7 @@ class MainWindow(QMainWindow):
         self._begin_destructive("목록 추가 전")
         result = merge_guests(self._model.guests, incoming, skip_exact_duplicates=True)
         self._model.set_guests(result.guests)
+        self._synced_lines = self._input.toPlainText().splitlines()
         self._offer_undo(f"{result.summary} · 총 {len(result.guests)}건")
         if result.duplicate_count:
             self._chk_review.setChecked(True)
@@ -1152,6 +1216,7 @@ class MainWindow(QMainWindow):
         self._input.setPlainText(state.raw_text)
         self._input.blockSignals(False)
         self._model.set_guests(state.guests)
+        self._synced_lines = self._baseline_for(state.guests, state.raw_text)
         self._save_session()
 
     # ------------------------------------------------------------ 영속화

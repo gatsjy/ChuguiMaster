@@ -83,7 +83,7 @@ class ToastNotification(QFrame):
             f" background-color: {accent_color}; }}"
         )
 
-    def show_message(self, message: str, duration_ms: int = 2600) -> None:
+    def show_message(self, message: str, duration_ms: int = 3000) -> None:
         """단순 알림. 클릭을 통과시켜 아래 위젯을 가리지 않는다."""
         self._action_callback = None
         self._action.hide()
@@ -95,7 +95,7 @@ class ToastNotification(QFrame):
         message: str,
         action_text: str,
         callback: Callable[[], None],
-        duration_ms: int = 9000,
+        duration_ms: int = 3000,
     ) -> None:
         """되돌리기처럼 곧바로 취소할 수 있는 알림.
 
