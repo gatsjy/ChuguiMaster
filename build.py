@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
@@ -56,6 +57,10 @@ def build(onefile: bool = False, clean: bool = True) -> int:
         command.append(f"--exclude-module={module}")
     if icon.is_file():
         command.append(f"--icon={icon}")
+    fonts = ROOT / "src" / "chugui" / "assets" / "fonts"
+    if any(fonts.glob("*.[ot]tf")):
+        # 레트로 테마 픽셀 폰트. 실행 시 chugui/assets/fonts 에서 찾는다.
+        command.append(f"--add-data={fonts}{os.pathsep}chugui/assets/fonts")
     command.append(str(ROOT / "main.py"))
 
     print(f"[{APP_NAME}] 빌드 시작 ({'onefile' if onefile else 'onedir'})")

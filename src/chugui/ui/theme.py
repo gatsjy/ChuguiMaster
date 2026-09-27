@@ -17,6 +17,12 @@ from chugui.models import Relation
 # --------------------------------------------------------------------- 토큰
 
 FONT_STACK = "'Pretendard', 'Malgun Gothic', '맑은 고딕', 'Segoe UI', sans-serif"
+#: 레트로 테마용 픽셀 폰트. ``assets/fonts`` 에 넣어 두면 자동으로 등록된다.
+#: 없으면 시스템 폰트로 내려가며, 그래도 색·테두리·기호로 레트로 느낌은 유지된다.
+PIXEL_FONT_STACK = (
+    "'Galmuri11', 'Galmuri9', 'DungGeunMo', 'NeoDunggeunmo', "
+    "'Malgun Gothic', '맑은 고딕', monospace"
+)
 
 
 class Space:
@@ -102,6 +108,15 @@ class Palette:
     selection: str
     focus_ring: str
     badges: dict[str, BadgeColors]
+    font_stack: str = FONT_STACK
+    #: 0이면 모든 모서리가 각진다(픽셀 느낌).
+    radius_scale: float = 1.0
+    #: 레트로 전용 장식(입체 버튼 · 굵은 테두리)을 켠다.
+    retro: bool = False
+    #: 입체 버튼 아래쪽 그림자 색.
+    bevel: str = "#000000"
+    #: 퀘스트 강조 · 경험치 막대 색.
+    quest: str = "#fbbf24"
 
 
 DARK = Palette(
@@ -179,8 +194,59 @@ LIGHT = Palette(
 )
 
 
+RETRO = Palette(
+    name="retro",
+    window="#0d0b1e",
+    surface="#17143a",
+    surface_alt="#1d1947",
+    surface_hover="#29245e",
+    border="#3a3480",
+    border_strong="#6a5fd0",
+    text="#f4f1ff",
+    text_muted="#d4ccff",
+    text_subtle="#a9a0e0",
+    accent="#5ee9ff",
+    accent_strong="#c2185b",
+    accent_hover="#d81b60",
+    accent_soft="#1f2150",
+    positive="#7dff6b",
+    positive_strong="#1b7a35",
+    positive_surface="#0f2a1c",
+    positive_border="#2fbf4f",
+    warning="#ffb000",
+    warning_text="#ffd166",
+    warning_surface="#33230a",
+    warning_border="#c98a00",
+    danger="#ff6b88",
+    grid="#26215a",
+    selection="#3b2f7a",
+    focus_ring="#ffd23f",
+    badges={
+        Relation.FAMILY.value: BadgeColors("#3a0f4f", "#ffa8f5", "#c04bd8"),
+        Relation.WORK.value: BadgeColors("#0e2350", "#8fd3ff", "#3b82f6"),
+        Relation.FAITH.value: BadgeColors("#0f3326", "#8cffc1", "#22b573"),
+        Relation.SCHOOL.value: BadgeColors("#3d2608", "#ffd166", "#d08c00"),
+        Relation.OTHER.value: BadgeColors("#26215a", "#e4e0ff", "#6a5fd0"),
+    },
+    font_stack=PIXEL_FONT_STACK,
+    radius_scale=0.0,
+    retro=True,
+    bevel="#05040f",
+    quest="#ffd23f",
+)
+
+PALETTES: dict[str, Palette] = {"retro": RETRO, "dark": DARK, "light": LIGHT}
+
+#: 테마 버튼에 표시할 '다음 테마' 이름.
+THEME_LABELS: dict[str, str] = {"retro": "🕹  레트로", "dark": "🌙  다크", "light": "☀  라이트"}
+
+
 def palette_for(dark_mode: bool) -> Palette:
     return DARK if dark_mode else LIGHT
+
+
+def palette_named(name: str) -> Palette:
+    return PALETTES.get(name, RETRO)
 
 
 def badge_colors(palette: Palette, relation: Relation) -> BadgeColors:
@@ -193,9 +259,18 @@ def badge_colors(palette: Palette, relation: Relation) -> BadgeColors:
 def build_stylesheet(palette: Palette) -> str:
     """토큰으로부터 애플리케이션 전역 스타일시트를 생성한다."""
     p = palette
+    r_sm = round(Radius.SM * p.radius_scale)
+    r_md = round(Radius.MD * p.radius_scale)
+    bw = 2 if p.retro else 1
+    return _base_stylesheet(p, r_sm, r_md, bw) + _quest_stylesheet(p, r_sm, bw) + (
+        _retro_stylesheet(p) if p.retro else ""
+    )
+
+
+def _base_stylesheet(p: Palette, r_sm: int, r_md: int, bw: int) -> str:
     return f"""
     QWidget {{
-        font-family: {FONT_STACK};
+        font-family: {p.font_stack};
         font-size: {FontSize.BODY}px;
         color: {p.text};
     }}
@@ -225,7 +300,7 @@ def build_stylesheet(palette: Palette) -> str:
         color: {p.accent};
         background-color: {p.accent_soft};
         border: 1px solid {p.border};
-        border-radius: {Radius.SM}px;
+        border-radius: {r_sm}px;
         padding: {Space.SM}px {Space.MD}px;
     }}
     QLabel#emptyTitle {{ font-size: {FontSize.SUBTITLE}px; font-weight: 700; color: {p.text_muted}; }}
@@ -236,23 +311,23 @@ def build_stylesheet(palette: Palette) -> str:
     QFrame#card {{
         background-color: {p.surface};
         border: 1px solid {p.border};
-        border-radius: {Radius.MD}px;
+        border-radius: {r_md}px;
     }}
     QFrame#netCard {{
         background-color: {p.positive_surface};
         border: 1px solid {p.positive_border};
-        border-radius: {Radius.MD}px;
+        border-radius: {r_md}px;
     }}
     QFrame#reviewBanner {{
         background-color: {p.warning_surface};
         border: 1px solid {p.warning_border};
-        border-radius: {Radius.SM}px;
+        border-radius: {r_sm}px;
     }}
     QLabel#reviewBannerText {{ color: {p.warning_text}; font-size: {FontSize.BODY}px; font-weight: 700; }}
     QFrame#hintBox {{
         background-color: {p.surface_alt};
         border: 1px dashed {p.border_strong};
-        border-radius: {Radius.SM}px;
+        border-radius: {r_sm}px;
     }}
     QFrame#separator {{ background-color: {p.border}; border: none; }}
 
@@ -260,7 +335,7 @@ def build_stylesheet(palette: Palette) -> str:
     QTextEdit, QPlainTextEdit {{
         background-color: {p.surface_alt};
         border: 1px solid {p.border};
-        border-radius: {Radius.SM}px;
+        border-radius: {r_sm}px;
         padding: {Space.MD}px;
         font-size: {FontSize.BODY}px;
         color: {p.text};
@@ -276,7 +351,7 @@ def build_stylesheet(palette: Palette) -> str:
     QLineEdit, QSpinBox, QComboBox {{
         background-color: {p.surface_alt};
         border: 1px solid {p.border};
-        border-radius: {Radius.SM}px;
+        border-radius: {r_sm}px;
         padding: {Space.XS}px {Space.SM}px;
         font-size: {FontSize.SMALL}px;
         font-weight: 600;
@@ -290,7 +365,7 @@ def build_stylesheet(palette: Palette) -> str:
         background-color: {p.surface};
         color: {p.text};
         border: 1px solid {p.border};
-        border-radius: {Radius.SM}px;
+        border-radius: {r_sm}px;
         padding: {Space.XS}px;
         selection-background-color: {p.accent_strong};
         selection-color: #ffffff;
@@ -301,7 +376,7 @@ def build_stylesheet(palette: Palette) -> str:
     QPushButton {{
         font-size: {FontSize.BODY}px;
         font-weight: 700;
-        border-radius: {Radius.SM}px;
+        border-radius: {r_sm}px;
         padding: {Space.SM}px {Space.LG}px;
         min-height: {Size.CONTROL_HEIGHT - 12}px;
         border: 1px solid {p.border_strong};
@@ -366,7 +441,7 @@ def build_stylesheet(palette: Palette) -> str:
         background-color: {p.surface};
         alternate-background-color: {p.surface_alt};
         border: 1px solid {p.border};
-        border-radius: {Radius.MD}px;
+        border-radius: {r_md}px;
         gridline-color: {p.grid};
         font-size: {FontSize.BODY}px;
         color: {p.text};
@@ -392,7 +467,7 @@ def build_stylesheet(palette: Palette) -> str:
     /* ------------------------------------------------------------ 기타 */
     QTabWidget::pane {{
         border: 1px solid {p.border};
-        border-radius: {Radius.SM}px;
+        border-radius: {r_sm}px;
         background: {p.surface};
         top: -1px;
     }}
@@ -403,8 +478,8 @@ def build_stylesheet(palette: Palette) -> str:
         font-weight: 600;
         color: {p.text_subtle};
         border: 1px solid transparent;
-        border-top-left-radius: {Radius.SM}px;
-        border-top-right-radius: {Radius.SM}px;
+        border-top-left-radius: {r_sm}px;
+        border-top-right-radius: {r_sm}px;
     }}
     QTabBar::tab:selected {{
         background: {p.surface};
@@ -461,9 +536,95 @@ def build_stylesheet(palette: Palette) -> str:
         background-color: {p.surface};
         color: {p.text};
         border: 1px solid {p.border_strong};
-        border-radius: {Radius.SM}px;
+        border-radius: {r_sm}px;
         padding: {Space.SM}px;
         font-size: {FontSize.SMALL}px;
     }}
     QScrollArea {{ background: transparent; border: none; }}
+    """
+
+
+def _quest_stylesheet(p: Palette, r_sm: int, bw: int) -> str:
+    """퀘스트 바 · 시작 화면. 모든 테마에 쓰인다."""
+    return f"""
+    QFrame#questBar {{
+        background-color: {p.surface};
+        border: {bw}px solid {p.quest};
+        border-radius: {r_sm}px;
+    }}
+    QLabel#questLevel {{
+        font-size: {FontSize.SMALL}px;
+        font-weight: 800;
+        color: {p.window};
+        background-color: {p.quest};
+        border-radius: {r_sm}px;
+        padding: 2px {Space.SM}px;
+    }}
+    QLabel#questTitle {{ font-size: {FontSize.SUBTITLE}px; font-weight: 800; color: {p.text}; }}
+    QLabel#questHint {{ font-size: {FontSize.SMALL}px; color: {p.text_muted}; }}
+    QLabel#questXp {{ font-size: {FontSize.CAPTION}px; font-weight: 700; color: {p.text_subtle}; }}
+
+    /* 지금 퀘스트가 가리키는 요소. ID 규칙보다 우선하도록 ID까지 붙여 쓴다. */
+    QTextEdit[questTarget="on"], QTableView[questTarget="on"],
+    QFrame#card[questTarget="on"], QPushButton#primary[questTarget="on"],
+    QPushButton#success[questTarget="on"] {{
+        border: 3px solid {p.quest};
+    }}
+
+    QFrame#startScreen {{ background-color: {p.window}; }}
+    QFrame#startPanel {{
+        background-color: {p.surface};
+        border: 3px solid {p.quest};
+        border-radius: {r_sm}px;
+    }}
+    QLabel#startLogo {{
+        font-size: 34px;
+        font-weight: 900;
+        color: {p.quest};
+        letter-spacing: 2px;
+    }}
+    QLabel#startSubtitle {{ font-size: {FontSize.SUBTITLE}px; color: {p.text_muted}; }}
+    QLabel#startStep {{ font-size: {FontSize.BODY}px; color: {p.text}; }}
+    QLabel#startBlink {{ font-size: {FontSize.SUBTITLE}px; font-weight: 800; color: {p.accent}; }}
+    QLabel#questRow {{ font-size: {FontSize.BODY}px; color: {p.text}; }}
+    QLabel#questRowDone {{ font-size: {FontSize.BODY}px; color: {p.positive}; }}
+    """
+
+
+def _retro_stylesheet(p: Palette) -> str:
+    """아케이드 느낌: 굵은 테두리 · 입체 버튼 · 각진 모서리.
+
+    Qt 스타일시트는 그림자를 지원하지 않으므로, 아래쪽 테두리를 두껍고 어둡게
+    칠해 눌리기 전의 입체감을 만들고, 누르면 그 두께를 위쪽 여백으로 옮겨
+    버튼이 '내려가는' 느낌을 낸다.
+    """
+    return f"""
+    QFrame#card, QFrame#netCard {{ border-width: 2px; }}
+    QTableView {{ border-width: 2px; }}
+    QLabel#appTitle {{ color: {p.quest}; letter-spacing: 1px; }}
+    QLabel#sectionTitle {{ color: {p.accent}; }}
+    QHeaderView::section {{ border-bottom: 2px solid {p.border_strong}; }}
+
+    QPushButton {{
+        border: 2px solid {p.border_strong};
+        border-bottom: 5px solid {p.bevel};
+    }}
+    QPushButton:pressed {{
+        border-bottom: 2px solid {p.bevel};
+        margin-top: 3px;
+    }}
+    QPushButton#primary, QPushButton#success {{
+        border: 2px solid {p.bevel};
+        border-bottom: 5px solid {p.bevel};
+    }}
+    QPushButton#primary:pressed, QPushButton#success:pressed {{
+        border-bottom: 2px solid {p.bevel};
+        margin-top: 3px;
+    }}
+    QPushButton#ghost {{ border: 2px solid {p.border}; border-bottom: 4px solid {p.bevel}; }}
+    QPushButton#danger {{ border: 2px solid {p.border}; border-bottom: 4px solid {p.bevel}; }}
+
+    QLineEdit, QSpinBox, QComboBox, QTextEdit, QPlainTextEdit {{ border-width: 2px; }}
+    QCheckBox::indicator {{ border-radius: 0px; border-width: 2px; }}
+    QScrollBar::handle:vertical, QScrollBar::handle:horizontal {{ border-radius: 0px; }}
     """

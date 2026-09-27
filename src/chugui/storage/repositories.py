@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +22,10 @@ from chugui.storage.paths import config_file, session_file, templates_file
 logger = logging.getLogger(__name__)
 
 
+#: 테마 순환 순서. 테마 버튼을 누를 때마다 다음 것으로 넘어간다.
+THEMES: tuple[str, ...] = ("retro", "dark", "light")
+
+
 @dataclass
 class AppConfig:
     """앱 전역 설정."""
@@ -31,13 +35,22 @@ class AppConfig:
     dark_mode: bool = True
     window_width: int = 1360
     window_height: int = 880
+    #: 'retro' · 'dark' · 'light'. dark_mode 는 구버전 호환용으로 함께 기록한다.
+    theme: str = "retro"
+    #: 깬 퀘스트 키 목록.
+    quests: list[str] = field(default_factory=list)
+    #: 첫 실행 시작 화면을 이미 봤는가.
+    onboarded: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "schema_version": SCHEMA_VERSION,
             "adult_meal": self.adult_meal,
             "child_meal": self.child_meal,
-            "dark_mode": self.dark_mode,
+            "dark_mode": self.theme != "light",
+            "theme": self.theme,
+            "quests": list(self.quests),
+            "onboarded": self.onboarded,
             "window_width": self.window_width,
             "window_height": self.window_height,
         }
@@ -67,6 +80,19 @@ class AppConfig:
                 config.dark_mode = True
             elif normalized in {"false", "0", "no", "off"}:
                 config.dark_mode = False
+
+        theme = data.get("theme")
+        if theme in THEMES:
+            config.theme = theme
+        elif not config.dark_mode:
+            # 테마 키가 없던 버전에서 밝은 화면을 고른 사용자의 선택은 존중한다.
+            config.theme = "light"
+        config.dark_mode = config.theme != "light"
+
+        quests = data.get("quests")
+        if isinstance(quests, list):
+            config.quests = [str(key) for key in quests]
+        config.onboarded = data.get("onboarded") is True
         return config
 
 
