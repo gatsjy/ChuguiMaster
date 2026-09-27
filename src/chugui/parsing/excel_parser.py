@@ -30,7 +30,7 @@ from chugui.models import (
     renumber,
 )
 from chugui.parsing.amount import parse_amount
-from chugui.parsing.names import format_display_name, split_names
+from chugui.parsing.names import format_display_name, split_names, strip_person_names
 from chugui.parsing.relations import guess_relation
 
 logger = logging.getLogger(__name__)
@@ -218,7 +218,7 @@ def parse_rows(rows: Sequence[Sequence[str]], source: Source = Source.EXCEL) -> 
             name=format_display_name(names),
             names=names,
             amount=amount,
-            relation=guess_relation(belong, note, raw_name),
+            relation=guess_relation(belong, note, strip_person_names(raw_name, names)),
             attendance=attendance,
             payment=Payment.coerce(note) if source is Source.EXCEL else Payment.TRANSFER,
             adult_tickets=adult_tickets,

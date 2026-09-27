@@ -77,7 +77,8 @@ class Payment(str, Enum):
         if isinstance(value, cls):
             return value
         text = str(value or "").strip()
-        return cls.TRANSFER if ("계좌" in text or "이체" in text or "송금" in text) else cls.CASH
+        transfer_words = ("계좌", "이체", "송금", "페이")
+        return cls.TRANSFER if any(word in text for word in transfer_words) else cls.CASH
 
 
 class Source(str, Enum):
