@@ -474,6 +474,23 @@ def _base_stylesheet(p: Palette, r_sm: int, r_md: int, bw: int) -> str:
         padding: {Space.SM}px;
         font-size: {FontSize.SMALL}px;
     }}
+    /* 우클릭 메뉴. Windows 는 메뉴를 기본 테마(흰 바탕)로 그리므로 여기서 칠하지 않으면
+       밝은 글자가 흰 바탕에 묻혀 빈 상자처럼 보인다(표 우클릭 · 입력창 우클릭). */
+    QMenu {{
+        background-color: {p.surface};
+        color: {p.text};
+        border: 1px solid {p.border_strong};
+        padding: {Space.XS}px;
+        font-size: {FontSize.BODY}px;
+    }}
+    QMenu::item {{
+        padding: {Space.SM}px {Space.XL}px {Space.SM}px {Space.MD}px;
+        background: transparent;
+        color: {p.text};
+    }}
+    QMenu::item:selected {{ background-color: {p.selection}; color: {p.text}; }}
+    QMenu::item:disabled {{ color: {p.text_subtle}; }}
+    QMenu::separator {{ height: 1px; background: {p.border}; margin: {Space.XS}px {Space.SM}px; }}
     QScrollArea {{ background: transparent; border: none; }}
     """
 
