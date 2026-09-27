@@ -33,7 +33,7 @@ from chugui.parsing.text_parser import parse_text
 from chugui.samples import SAMPLE_TEXT
 from chugui.ui.guest_model import Column
 from chugui.ui.main_window import MainWindow
-from chugui.ui.theme import DARK, LIGHT, FontSize, Palette, Size, build_stylesheet
+from chugui.ui.theme import DARK, LIGHT, RETRO, FontSize, Palette, Size, build_stylesheet
 
 # ------------------------------------------------------------------ 대비 계산
 
@@ -65,7 +65,7 @@ def contrast_ratio(foreground: str, background: str) -> float:
     return (lighter + 0.05) / (darker + 0.05)
 
 
-PALETTES = pytest.mark.parametrize("palette", [DARK, LIGHT], ids=["dark", "light"])
+PALETTES = pytest.mark.parametrize("palette", [RETRO, DARK, LIGHT], ids=["retro", "dark", "light"])
 
 
 class TestContrastSanity:
@@ -502,7 +502,7 @@ class TestFeedback:
 
 class TestThemeSwitching:
     def test_both_themes_apply_without_error(self, loaded_window, qt_app):
-        for _ in range(2):
+        for _ in range(3):
             loaded_window._toggle_theme()
             qt_app.processEvents()
             assert loaded_window.styleSheet().strip()
@@ -514,7 +514,16 @@ class TestThemeSwitching:
         assert window._btn_theme.text() != first
 
     def test_theme_choice_persists(self, window, qt_app):
-        original = window._config.dark_mode
+        original = window._config.theme
         window._toggle_theme()
         window._save_config()
-        assert window._config_repo.load().dark_mode is (not original)
+        assert window._config_repo.load().theme != original
+
+    def test_theme_cycles_through_all_palettes(self, window, qt_app):
+        seen = set()
+        for _ in range(3):
+            seen.add(window._config.theme)
+            window._toggle_theme()
+            qt_app.processEvents()
+        assert seen == {"retro", "dark", "light"}
+        assert window._config.theme == "retro"

@@ -74,9 +74,27 @@ class TestConfigRepository:
 
     def test_round_trip(self):
         repo = ConfigRepository()
-        repo.save(AppConfig(adult_meal=55_000, child_meal=30_000, dark_mode=False))
+        repo.save(AppConfig(adult_meal=55_000, child_meal=30_000, theme="light", quests=["paste"]))
         loaded = repo.load()
-        assert (loaded.adult_meal, loaded.child_meal, loaded.dark_mode) == (55_000, 30_000, False)
+        assert (loaded.adult_meal, loaded.child_meal, loaded.theme) == (55_000, 30_000, "light")
+        assert loaded.dark_mode is False
+        assert loaded.quests == ["paste"]
+
+    @pytest.mark.parametrize(
+        ("stored", "theme"),
+        [({"dark_mode": False}, "light"), ({"dark_mode": True}, "retro"), ({}, "retro"),
+         ({"theme": "dark"}, "dark"), ({"theme": "neon"}, "retro")],
+    )
+    def test_theme_migrates_from_older_configs(self, stored, theme):
+        """테마 키가 없던 버전에서 라이트를 고른 사용자는 라이트를 유지한다."""
+        repo = ConfigRepository()
+        repo.path.write_text(json.dumps(stored), encoding="utf-8")
+        assert repo.load().theme == theme
+
+    def test_onboarding_flag_requires_true(self):
+        repo = ConfigRepository()
+        repo.path.write_text(json.dumps({"onboarded": "yes"}), encoding="utf-8")
+        assert repo.load().onboarded is False
 
     @pytest.mark.parametrize(
         ("stored", "expected"),

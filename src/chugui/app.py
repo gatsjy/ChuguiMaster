@@ -4,12 +4,24 @@ from __future__ import annotations
 
 import logging
 import sys
+from pathlib import Path
 
 from chugui import __app_name__, __version__
 from chugui.logging_setup import install_excepthook, setup_logging
 from chugui.storage.paths import data_dir, migrate_legacy_files
 
 logger = logging.getLogger(__name__)
+
+
+def _register_bundled_fonts() -> None:
+    """``assets/fonts`` 의 폰트(레트로 테마 픽셀 폰트)를 등록한다. 없으면 조용히 넘어간다."""
+    from PySide6.QtGui import QFontDatabase
+
+    # PyInstaller 산출물은 _MEIPASS 아래에, 소스 실행은 src/ 아래에 같은 구조로 있다.
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
+    for font in sorted((base / "chugui" / "assets" / "fonts").glob("*.[ot]tf")):
+        if QFontDatabase.addApplicationFont(str(font)) < 0:
+            logger.warning("폰트 등록 실패: %s", font.name)
 
 
 def run() -> int:
@@ -34,6 +46,7 @@ def run() -> int:
     app.setApplicationName(__app_name__)
     app.setApplicationVersion(__version__)
     app.setOrganizationName(__app_name__)
+    _register_bundled_fonts()
 
     def _report(kind: str, message: str) -> None:
         QMessageBox.critical(

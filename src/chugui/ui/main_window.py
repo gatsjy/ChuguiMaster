@@ -57,9 +57,11 @@ from chugui.samples import SAMPLE_TEXT
 from chugui.services.exporter import export_to_excel
 from chugui.services.merge import merge_guests
 from chugui.services.messages import MessageService
+from chugui.services.quests import QuestSnapshot, QuestTracker, Update
 from chugui.services.settlement import Settlement, settle
 from chugui.storage.crash import CrashSentinel
 from chugui.storage.repositories import (
+    THEMES,
     AppConfig,
     ConfigRepository,
     SessionRepository,
@@ -76,7 +78,8 @@ from chugui.ui.delegates import (
 )
 from chugui.ui.dialogs import HelpDialog, SnapshotRestoreDialog, TemplateSettingsDialog
 from chugui.ui.guest_model import Column, GuestFilterProxy, GuestTableModel
-from chugui.ui.theme import Size, Space, build_stylesheet, palette_for
+from chugui.ui.quest_widgets import QuestBar, QuestLogDialog, StartScreen
+from chugui.ui.theme import THEME_LABELS, Palette, Size, Space, build_stylesheet, palette_named
 from chugui.ui.widgets import DropTextEdit, EmptyState, MetricCard, ToastNotification
 
 logger = logging.getLogger(__name__)
@@ -93,6 +96,8 @@ _SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000
 _UNDO_TOAST_MS = 9000
 #: 입력 미리보기 디바운스. 타이핑 중 매 글자 파싱하지 않는다.
 _PREVIEW_DEBOUNCE_MS = 300
+#: 퀘스트 대상 강조 깜박임 주기.
+_QUEST_BLINK_MS = 650
 
 _EMPTY_NO_DATA = (
     "아직 취합된 내역이 없습니다",
@@ -127,6 +132,7 @@ class MainWindow(QMainWindow):
 
         self._config: AppConfig = self._config_repo.load()
         self._messages = MessageService(self._template_repo.load())
+        self._tracker = QuestTracker(self._config.quests)
 
         self._model = GuestTableModel(self._messages, self)
         self._proxy = GuestFilterProxy(self)
@@ -171,6 +177,23 @@ class MainWindow(QMainWindow):
         self._toast = ToastNotification(self)
         self._apply_toast_palette()
 
+        # 퀘스트가 가리키는 버튼·영역을 깜박여 '다음에 누를 곳' 을 알려 준다.
+        self._quest_target: QWidget | None = None
+        self._quest_blink_on = False
+        self._quest_blink_timer = QTimer(self)
+        self._quest_blink_timer.setInterval(_QUEST_BLINK_MS)
+        self._quest_blink_timer.timeout.connect(self._blink_quest_target)
+        self._quest_blink_timer.start()
+        self._refresh_quests()
+
+        self._start_screen = StartScreen(self)
+        self._start_screen.practiceRequested.connect(self._on_start_practice)
+        self._start_screen.startRequested.connect(self._on_start_plain)
+        if self._config.onboarded:
+            self._start_screen.hide()
+        else:
+            self._start_screen.present()
+
         self._model.guestsChanged.connect(self._on_guests_changed)
         self._proxy.rowsInserted.connect(self._update_empty_state)
         self._proxy.rowsRemoved.connect(self._update_empty_state)
@@ -189,6 +212,9 @@ class MainWindow(QMainWindow):
         root.setSpacing(Space.MD)
 
         root.addLayout(self._build_header())
+        self._quest_bar = QuestBar()
+        self._quest_bar.logRequested.connect(self._open_quest_log)
+        root.addWidget(self._quest_bar)
         root.addLayout(self._build_kpi_row())
         root.addWidget(self._build_settings_strip())
         root.addWidget(self._build_review_banner())
@@ -218,7 +244,7 @@ class MainWindow(QMainWindow):
         self._btn_theme = QPushButton()
         self._btn_theme.setObjectName("ghost")
         self._btn_theme.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_theme.setToolTip("밝은 화면과 어두운 화면을 전환합니다.")
+        self._btn_theme.setToolTip("레트로 · 다크 · 라이트 화면을 차례로 전환합니다.")
         self._btn_theme.setAccessibleName("테마 전환")
         self._btn_theme.clicked.connect(self._toggle_theme)
 
@@ -286,6 +312,7 @@ class MainWindow(QMainWindow):
         strip.setObjectName("card")
         strip.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         strip.setAccessibleName("식대 단가 설정")
+        self._meal_strip = strip
 
         layout = QHBoxLayout(strip)
         layout.setContentsMargins(Space.MD, Space.SM, Space.MD, Space.SM)
@@ -373,7 +400,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(Space.MD, Space.MD, Space.MD, Space.MD)
         layout.setSpacing(Space.SM)
 
-        heading = QLabel("1. 명단 입력")
+        heading = QLabel("STAGE 1 ▸ 명단 입력")
         heading.setObjectName("sectionTitle")
 
         hint_box = QFrame()
@@ -412,12 +439,13 @@ class MainWindow(QMainWindow):
         self._preview.setToolTip("입력한 내용을 실시간으로 미리 해석한 결과입니다.")
         self._preview.hide()
 
-        btn_parse = QPushButton("자동 취합 및 파싱")
+        btn_parse = QPushButton("▶  자동 취합 및 파싱")
         btn_parse.setObjectName("primary")
         btn_parse.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_parse.setToolTip("입력한 텍스트를 표로 변환합니다.  (Ctrl+Enter)")
         btn_parse.setAccessibleName("자동 취합 및 파싱")
         btn_parse.clicked.connect(self._handle_parse)
+        self._btn_parse = btn_parse
 
         self._btn_append = QPushButton("기존 목록에 추가")
         self._btn_append.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -468,7 +496,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(Space.LG, Space.LG, Space.LG, Space.LG)
         layout.setSpacing(Space.SM)
 
-        heading = QLabel("2. 확인 및 감사 인사")
+        heading = QLabel("STAGE 2 ▸ 확인 · 감사")
         heading.setObjectName("sectionTitle")
 
         self._search = QLineEdit()
@@ -519,6 +547,7 @@ class MainWindow(QMainWindow):
         btn_export.setToolTip("명단과 정산 요약을 xlsx 파일로 저장합니다.  (Ctrl+S)")
         btn_export.setAccessibleName("엑셀로 내보내기")
         btn_export.clicked.connect(self._handle_export)
+        self._btn_export = btn_export
 
         layout.addLayout(header)
         layout.addWidget(self._table_stack, 1)
@@ -546,7 +575,7 @@ class MainWindow(QMainWindow):
         table.setAccessibleName("하객 목록")
         table.setToolTip("값을 더블클릭하면 직접 수정할 수 있습니다.")
 
-        palette = palette_for(self._config.dark_mode)
+        palette = self._palette()
         self._relation_delegate = RelationBadgeDelegate(palette, table)
         self._copy_delegate = CopyButtonDelegate(palette, table)
         self._copy_delegate.clicked.connect(self._on_copy_clicked)
@@ -605,16 +634,26 @@ class MainWindow(QMainWindow):
 
     # -------------------------------------------------------------- 테마
 
+    def _palette(self) -> Palette:
+        return palette_named(self._config.theme)
+
+    def _next_theme(self) -> str:
+        index = THEMES.index(self._config.theme) if self._config.theme in THEMES else 0
+        return THEMES[(index + 1) % len(THEMES)]
+
     def _apply_theme(self) -> None:
-        palette = palette_for(self._config.dark_mode)
+        palette = self._palette()
         self.setStyleSheet(build_stylesheet(palette))
-        self._btn_theme.setText("☀  라이트" if self._config.dark_mode else "🌙  다크")
+        # 버튼에는 누르면 바뀔 테마를 적는다.
+        self._btn_theme.setText(THEME_LABELS[self._next_theme()])
+        if hasattr(self, "_quest_bar"):
+            self._quest_bar.apply_palette(palette)
 
         if hasattr(self, "_relation_delegate"):
             self._relation_delegate.set_palette(palette)
             self._copy_delegate.set_palette(palette)
             review_color = QColor(palette.warning_surface)
-            review_color.setAlpha(150 if self._config.dark_mode else 210)
+            review_color.setAlpha(210 if palette.name == "light" else 150)
             self._model.set_review_color(review_color)
             self._table.viewport().update()
         if hasattr(self, "_toast"):
@@ -622,11 +661,12 @@ class MainWindow(QMainWindow):
         self._refresh_summary()
 
     def _apply_toast_palette(self) -> None:
-        palette = palette_for(self._config.dark_mode)
+        palette = self._palette()
         self._toast.apply_palette(palette.surface, palette.text, palette.border_strong, palette.accent)
 
     def _toggle_theme(self) -> None:
-        self._config.dark_mode = not self._config.dark_mode
+        self._config.theme = self._next_theme()
+        self._config.dark_mode = self._config.theme != "light"
         self._apply_theme()
         self._schedule_config_save()
 
@@ -773,10 +813,17 @@ class MainWindow(QMainWindow):
         QApplication.clipboard().setText(message)
         # 복사는 '보냄'이 아니다. 발송 여부는 사용자가 직접 체크한다.
         self._toast.show_message(f"{guest.name} 인사말 복사됨 · Ctrl+V 로 붙여넣어 발송하세요")
+        self._apply_quest_update(self._tracker.mark("copy"))
 
     def _on_meal_cost_changed(self) -> None:
+        changed = (self._config.adult_meal, self._config.child_meal) != (
+            self._spin_adult.value(),
+            self._spin_child.value(),
+        )
         self._config.adult_meal = self._spin_adult.value()
         self._config.child_meal = self._spin_child.value()
+        if changed:
+            self._apply_quest_update(self._tracker.mark("meal"))
         self._refresh_summary()
         self._schedule_config_save()
 
@@ -822,7 +869,7 @@ class MainWindow(QMainWindow):
     def _refresh_summary(self) -> None:
         if not hasattr(self, "_card_total"):
             return
-        palette = palette_for(self._config.dark_mode)
+        palette = self._palette()
         result = self._current_settlement()
 
         self._card_total.set_value(f"{result.total_amount:,}원", palette.text)
@@ -850,6 +897,7 @@ class MainWindow(QMainWindow):
 
         self._update_review_banner(result)
         self._update_status_bar(result)
+        self._observe_quests(result)
 
     def _update_review_banner(self, result: Settlement) -> None:
         if result.review_count:
@@ -916,6 +964,7 @@ class MainWindow(QMainWindow):
     def _on_input_changed(self) -> None:
         self._schedule_autosave()
         self._preview_timer.start()
+        self._observe_quests(self._current_settlement())
 
     def _update_preview(self) -> None:
         """입력창 아래에 해석 결과를 요약해 보여 준다."""
@@ -961,6 +1010,91 @@ class MainWindow(QMainWindow):
         self._offer_undo(f"{result.summary} · 총 {len(result.guests)}건")
         if result.duplicate_count:
             self._chk_review.setChecked(True)
+
+    # ------------------------------------------------------------ 퀘스트
+
+    def _observe_quests(self, result: Settlement) -> None:
+        if not hasattr(self, "_tracker") or not hasattr(self, "_quest_bar"):
+            return
+        snapshot = QuestSnapshot(
+            has_input=bool(self._input.toPlainText().strip()),
+            guest_count=result.guest_count,
+            review_count=result.review_count,
+            sent_count=result.sent_count,
+        )
+        self._apply_quest_update(self._tracker.observe(snapshot))
+
+    def _apply_quest_update(self, update: Update) -> None:
+        if update.newly_cleared:
+            last = update.newly_cleared[-1]
+            xp = sum(quest.xp for quest in update.newly_cleared)
+            progress = self._tracker.progress()
+            if update.level_up:
+                headline = f"★ LEVEL UP!  LV.{progress.level} {progress.title}"
+            else:
+                headline = f"★ QUEST CLEAR!  {last.title}"
+            # 상태바는 정산 요약 자리라 건드리지 않는다. 축하는 퀘스트 바에서만.
+            self._quest_bar.celebrate(headline, f"+{xp} XP 획득")
+            self._config.quests = self._tracker.cleared_keys
+            self._schedule_config_save()
+        self._refresh_quests()
+
+    def _refresh_quests(self) -> None:
+        if not hasattr(self, "_quest_blink_timer"):
+            return  # 생성자 도중. 준비가 끝나면 다시 불린다.
+        progress = self._tracker.progress()
+        self._quest_bar.set_progress(progress)
+        targets: dict[str, QWidget] = {
+            "input": self._input,
+            "parse": self._btn_parse,
+            "table": self._table,
+            "meal": self._meal_strip,
+            "export": self._btn_export,
+        }
+        target = targets.get(progress.current.target) if progress.current else None
+        if target is not self._quest_target:
+            self._set_quest_highlight(self._quest_target, False)
+            self._quest_target = target
+
+    def _blink_quest_target(self) -> None:
+        self._quest_blink_on = not self._quest_blink_on
+        self._set_quest_highlight(self._quest_target, self._quest_blink_on)
+
+    @staticmethod
+    def _set_quest_highlight(widget: QWidget | None, on: bool) -> None:
+        if widget is None:
+            return
+        value = "on" if on else "off"
+        if widget.property("questTarget") == value:
+            return
+        widget.setProperty("questTarget", value)
+        # 동적 속성은 다시 polish 해야 스타일시트에 반영된다.
+        widget.style().unpolish(widget)
+        widget.style().polish(widget)
+        widget.update()
+
+    def _open_quest_log(self) -> None:
+        dialog = QuestLogDialog(self._tracker, self)
+        dialog.exec()
+        if dialog.reset_requested:
+            self._tracker.reset()
+            self._config.quests = []
+            self._schedule_config_save()
+            self._refresh_quests()
+            self._toast.show_message("퀘스트를 처음부터 다시 시작합니다.")
+
+    def _finish_onboarding(self) -> None:
+        self._start_screen.dismiss()
+        self._config.onboarded = True
+        self._schedule_config_save()
+
+    def _on_start_practice(self) -> None:
+        self._finish_onboarding()
+        self._handle_sample()
+
+    def _on_start_plain(self) -> None:
+        self._finish_onboarding()
+        self._input.setFocus()
 
     # ------------------------------------------------- 스냅샷 · 되돌리기
 
@@ -1055,6 +1189,7 @@ class MainWindow(QMainWindow):
             QApplication.restoreOverrideCursor()
 
         self._toast.show_message("엑셀 저장 완료")
+        self._apply_quest_update(self._tracker.mark("export"))
         self.statusBar().showMessage(f"저장됨: {file_path}", 8000)
 
     # ------------------------------------------------------------ 이벤트
@@ -1063,6 +1198,8 @@ class MainWindow(QMainWindow):
         super().resizeEvent(event)
         if hasattr(self, "_toast"):
             self._toast.reposition()
+        if hasattr(self, "_start_screen") and self._start_screen.isVisible():
+            self._start_screen.setGeometry(self.rect())
         self._schedule_config_save()
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
@@ -1071,6 +1208,7 @@ class MainWindow(QMainWindow):
         self._config_timer.stop()
         self._snapshot_timer.stop()
         self._preview_timer.stop()
+        self._quest_blink_timer.stop()
         self._save_session()
         self._save_config()
         self._sentinel.disarm()
