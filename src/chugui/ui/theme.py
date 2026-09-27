@@ -1,7 +1,7 @@
 """디자인 시스템.
 
 색 · 간격 · 타이포그래피를 **토큰**으로 정의하고, 스타일시트는 거기서 생성한다.
-값을 바꾸려면 토큰만 고치면 되고, 두 테마가 구조적으로 항상 대응한다.
+값을 바꾸려면 토큰만 고치면 된다. 화면은 레트로 테마 하나만 쓴다.
 
 접근성 원칙: 본문 텍스트는 배경 대비 **4.5:1 이상**(WCAG AA),
 큰 텍스트(18.66px 이상 굵게)는 **3:1 이상**을 만족한다.
@@ -117,81 +117,6 @@ class Palette:
     bevel: str = "#000000"
 
 
-DARK = Palette(
-    name="dark",
-    window="#0b1220",
-    surface="#151f33",
-    surface_alt="#1c2942",
-    surface_hover="#233150",
-    border="#2c3b57",
-    border_strong="#3d5075",
-    text="#f1f5f9",
-    text_muted="#c3cfe0",
-    text_subtle="#93a3bb",
-    accent="#93a5fd",
-    accent_strong="#4f46e5",
-    accent_hover="#6366f1",
-    accent_soft="#1e2547",
-    positive="#4ade80",
-    # 채워진 버튼 위의 흰 글씨가 WCAG AA(4.5:1)를 넘어야 한다.
-    # #059669는 3.77:1로 미달이라 한 단계 어둡게 잡았다.
-    positive_strong="#047857",
-    positive_surface="#0a3a2c",
-    positive_border="#0f7057",
-    warning="#fbbf24",
-    warning_text="#fcd34d",
-    warning_surface="#3a2a08",
-    warning_border="#a16207",
-    danger="#fb7185",
-    grid="#22304a",
-    selection="#2b3a63",
-    focus_ring="#93a5fd",
-    badges={
-        Relation.FAMILY.value: BadgeColors("#3b1163", "#e0bafd", "#7e34c9"),
-        Relation.WORK.value: BadgeColors("#1b2260", "#b4befe", "#4f5bd5"),
-        Relation.FAITH.value: BadgeColors("#0a3a2c", "#82efb9", "#0f7057"),
-        Relation.SCHOOL.value: BadgeColors("#452408", "#fbd38d", "#b45309"),
-        Relation.OTHER.value: BadgeColors("#2c3b57", "#dbe4f0", "#4a5c7e"),
-    },
-)
-
-LIGHT = Palette(
-    name="light",
-    window="#eef2f7",
-    surface="#ffffff",
-    surface_alt="#f6f8fb",
-    surface_hover="#eaeff6",
-    border="#dde4ee",
-    border_strong="#c2ccdb",
-    text="#0f172a",
-    text_muted="#475569",
-    text_subtle="#5c6b81",
-    accent="#4338ca",
-    accent_strong="#4f46e5",
-    accent_hover="#6366f1",
-    accent_soft="#eef0ff",
-    positive="#047857",
-    positive_strong="#047857",
-    positive_surface="#ecfdf5",
-    positive_border="#a7f3d0",
-    warning="#b45309",
-    warning_text="#92400e",
-    warning_surface="#fffbeb",
-    warning_border="#fcd34d",
-    danger="#dc2626",
-    grid="#eef2f7",
-    selection="#e0e7ff",
-    focus_ring="#4f46e5",
-    badges={
-        Relation.FAMILY.value: BadgeColors("#f5e9ff", "#6b21a8", "#d8b4fe"),
-        Relation.WORK.value: BadgeColors("#e8ebff", "#3730a3", "#a5b4fc"),
-        Relation.FAITH.value: BadgeColors("#e3fcef", "#065f46", "#6ee7b7"),
-        Relation.SCHOOL.value: BadgeColors("#fef6e0", "#8a4708", "#fcd34d"),
-        Relation.OTHER.value: BadgeColors("#eef2f7", "#334155", "#c2ccdb"),
-    },
-)
-
-
 RETRO = Palette(
     name="retro",
     window="#0d0b1e",
@@ -232,18 +157,8 @@ RETRO = Palette(
     bevel="#05040f",
 )
 
-PALETTES: dict[str, Palette] = {"retro": RETRO, "dark": DARK, "light": LIGHT}
-
-#: 테마 버튼에 표시할 '다음 테마' 이름.
-THEME_LABELS: dict[str, str] = {"retro": "▦  레트로", "dark": "🌙  다크", "light": "☀  라이트"}
-
-
-def palette_for(dark_mode: bool) -> Palette:
-    return DARK if dark_mode else LIGHT
-
-
-def palette_named(name: str) -> Palette:
-    return PALETTES.get(name, RETRO)
+#: 앱이 쓰는 유일한 팔레트.
+PALETTE = RETRO
 
 
 def badge_colors(palette: Palette, relation: Relation) -> BadgeColors:
@@ -433,6 +348,19 @@ def _base_stylesheet(p: Palette, r_sm: int, r_md: int, bw: int) -> str:
         padding: {Space.XS}px {Space.MD}px;
     }}
 
+    /* ------------------------------------------------------------ 목록 */
+    QListView {{
+        background-color: {p.surface};
+        border: 1px solid {p.border};
+        border-radius: {r_sm}px;
+        color: {p.text};
+        outline: none;
+        padding: {Space.XS}px;
+    }}
+    QListView::item {{ padding: {Space.SM}px; border-bottom: 1px solid {p.grid}; }}
+    QListView::item:hover {{ background-color: {p.surface_hover}; }}
+    QListView::item:selected {{ background-color: {p.selection}; color: {p.text}; }}
+
     /* -------------------------------------------------------------- 표 */
     QTableView {{
         background-color: {p.surface};
@@ -597,3 +525,53 @@ def _retro_stylesheet(p: Palette) -> str:
     QCheckBox::indicator {{ border-radius: 0px; }}
     QScrollBar::handle:vertical, QScrollBar::handle:horizontal {{ border-radius: 0px; }}
     """
+
+
+def apply_application_theme(palette: Palette) -> None:
+    """앱 전체에 팔레트와 스타일시트를 적용한다.
+
+    스타일시트는 이름을 붙인 위젯만 칠한다. 칠하지 않은 위젯(목록 · 스크롤 영역 ·
+    메시지 상자 등)은 Windows 기본값인 **흰 바탕**을 쓰면서 글자색만 밝은 색을
+    물려받아, 글자가 보이지 않았다('이전 시점 복구' 목록, '입력 가이드').
+    기본 팔레트 자체를 테마 색으로 맞추면 새 화면을 추가해도 같은 사고가 나지 않는다.
+    창에만 걸지 않고 앱에 거는 이유: 부모 없이 뜨는 대화상자에도 적용되어야 한다.
+    """
+    from PySide6.QtGui import QColor, QPalette
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    if app is None:
+        return
+    p = palette
+    qp = QPalette()
+    role = QPalette.ColorRole
+    for group in (QPalette.ColorGroup.Active, QPalette.ColorGroup.Inactive):
+        for color_role, value in (
+            (role.Window, p.window),
+            (role.WindowText, p.text),
+            (role.Base, p.surface),
+            (role.AlternateBase, p.surface_alt),
+            (role.Text, p.text),
+            (role.PlaceholderText, p.text_subtle),
+            (role.Button, p.surface_alt),
+            (role.ButtonText, p.text),
+            (role.BrightText, "#ffffff"),
+            (role.Highlight, p.selection),
+            (role.HighlightedText, p.text),
+            (role.ToolTipBase, p.surface),
+            (role.ToolTipText, p.text),
+            (role.Link, p.accent),
+            (role.Mid, p.border),
+            (role.Dark, p.bevel),
+        ):
+            qp.setColor(group, color_role, QColor(value))
+    for color_role in (role.WindowText, role.Text, role.ButtonText):
+        qp.setColor(QPalette.ColorGroup.Disabled, color_role, QColor(p.text_subtle))
+    qp.setColor(QPalette.ColorGroup.Disabled, role.Base, QColor(p.window))
+    qp.setColor(QPalette.ColorGroup.Disabled, role.Window, QColor(p.window))
+    # 같은 값을 다시 걸어도 Qt 는 살아 있는 모든 위젯을 다시 칠한다. 바뀔 때만 건다.
+    if app.palette() != qp:
+        app.setPalette(qp)
+    sheet = build_stylesheet(p)
+    if app.styleSheet() != sheet:
+        app.setStyleSheet(sheet)

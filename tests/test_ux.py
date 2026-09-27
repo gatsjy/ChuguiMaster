@@ -33,7 +33,7 @@ from chugui.parsing.text_parser import parse_text
 from chugui.samples import SAMPLE_TEXT
 from chugui.ui.guest_model import Column
 from chugui.ui.main_window import MainWindow
-from chugui.ui.theme import DARK, LIGHT, RETRO, FontSize, Palette, Size, build_stylesheet
+from chugui.ui.theme import RETRO, FontSize, Palette, Size, build_stylesheet
 
 # ------------------------------------------------------------------ 대비 계산
 
@@ -65,7 +65,7 @@ def contrast_ratio(foreground: str, background: str) -> float:
     return (lighter + 0.05) / (darker + 0.05)
 
 
-PALETTES = pytest.mark.parametrize("palette", [RETRO, DARK, LIGHT], ids=["retro", "dark", "light"])
+PALETTES = pytest.mark.parametrize("palette", [RETRO], ids=["retro"])
 
 
 class TestContrastSanity:
@@ -299,15 +299,6 @@ class TestReviewRowHighlight:
         assert problem is not None
         assert clean is None
 
-    def test_highlight_follows_theme(self, window, qt_app):
-        window._model.set_guests(parse_text("홍길동 친척"))
-        qt_app.processEvents()
-        model = window._model
-        dark_brush = model.data(model.index(0, Column.NO), Qt.ItemDataRole.BackgroundRole)
-        window._toggle_theme()
-        qt_app.processEvents()
-        light_brush = model.data(model.index(0, Column.NO), Qt.ItemDataRole.BackgroundRole)
-        assert dark_brush.color() != light_brush.color()
 
 
 class TestAutosaveDiscipline:
@@ -406,6 +397,17 @@ class TestLayoutRobustness:
             f"레이아웃이 {required}px를 요구하는데 최소 폭은 {loaded_window.minimumWidth()}px"
         )
 
+    def test_layout_fits_within_declared_minimum_height(self, loaded_window, qt_app):
+        """높이가 모자라면 입력 안내 상자가 눌려 글자가 서로 겹친다(실제로 겪은 일)."""
+        qt_app.processEvents()
+        required = (
+            loaded_window.centralWidget().minimumSizeHint().height()
+            + loaded_window.statusBar().sizeHint().height()
+        )
+        assert required <= loaded_window.minimumHeight(), (
+            f"레이아웃이 {required}px를 요구하는데 최소 높이는 {loaded_window.minimumHeight()}px"
+        )
+
     @pytest.mark.parametrize(
         "line",
         [
@@ -500,30 +502,45 @@ class TestFeedback:
         assert "현금" in loaded_window._card_total._caption.text()
 
 
-class TestThemeSwitching:
-    def test_both_themes_apply_without_error(self, loaded_window, qt_app):
-        for _ in range(3):
-            loaded_window._toggle_theme()
-            qt_app.processEvents()
-            assert loaded_window.styleSheet().strip()
-
-    def test_theme_button_label_matches_state(self, window, qt_app):
-        first = window._btn_theme.text()
-        window._toggle_theme()
+class TestFullscreen:
+    def test_toggle_enters_and_leaves(self, window, qt_app):
+        window._toggle_fullscreen()
         qt_app.processEvents()
-        assert window._btn_theme.text() != first
+        assert window.isFullScreen()
+        assert "창 모드" in window._btn_fullscreen.text()
+        window._leave_fullscreen()
+        qt_app.processEvents()
+        assert not window.isFullScreen()
+        assert "전체 화면" in window._btn_fullscreen.text()
 
-    def test_theme_choice_persists(self, window, qt_app):
-        original = window._config.theme
-        window._toggle_theme()
+    def test_shortcuts_registered(self, window):
+        keys = {action.shortcut().toString() for action in window.actions()}
+        assert {"F11", "Esc"} <= keys
+
+    def test_escape_is_only_captured_in_fullscreen(self, window, qt_app):
+        """평소 Esc 는 셀 편집 취소 등에 쓰이므로 가로채지 않는다."""
+        assert not window._esc_action.isEnabled()
+        window._toggle_fullscreen()
+        qt_app.processEvents()
+        assert window._esc_action.isEnabled()
+        window._leave_fullscreen()
+        qt_app.processEvents()
+        assert not window._esc_action.isEnabled()
+
+    def test_fullscreen_size_is_not_saved_as_window_size(self, window, qt_app):
+        window.resize(1200, 760)
+        qt_app.processEvents()
         window._save_config()
-        assert window._config_repo.load().theme != original
+        before = (window._config.window_width, window._config.window_height)
+        window._toggle_fullscreen()
+        qt_app.processEvents()
+        window._save_config()
+        loaded = window._config_repo.load()
+        assert (loaded.window_width, loaded.window_height) == before
+        window._leave_fullscreen()
 
-    def test_theme_cycles_through_all_palettes(self, window, qt_app):
-        seen = set()
-        for _ in range(3):
-            seen.add(window._config.theme)
-            window._toggle_theme()
-            qt_app.processEvents()
-        assert seen == {"retro", "dark", "light"}
-        assert window._config.theme == "retro"
+    def test_maximized_state_is_remembered(self, window, qt_app):
+        window.showMaximized()
+        qt_app.processEvents()
+        window._save_config()
+        assert window._config_repo.load().maximized is True

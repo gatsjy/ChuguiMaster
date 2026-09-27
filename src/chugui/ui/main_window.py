@@ -61,7 +61,6 @@ from chugui.services.quests import Quest, QuestSnapshot, QuestTracker
 from chugui.services.settlement import Settlement, settle
 from chugui.storage.crash import CrashSentinel
 from chugui.storage.repositories import (
-    THEMES,
     AppConfig,
     ConfigRepository,
     SessionRepository,
@@ -79,7 +78,7 @@ from chugui.ui.delegates import (
 from chugui.ui.dialogs import HelpDialog, SnapshotRestoreDialog, TemplateSettingsDialog
 from chugui.ui.guest_model import Column, GuestFilterProxy, GuestTableModel
 from chugui.ui.quest_widgets import QuestBar, QuestLogDialog
-from chugui.ui.theme import THEME_LABELS, Palette, Size, Space, build_stylesheet, palette_named
+from chugui.ui.theme import PALETTE, Palette, Size, Space, apply_application_theme
 from chugui.ui.widgets import DropTextEdit, EmptyState, MetricCard, ToastNotification
 
 logger = logging.getLogger(__name__)
@@ -227,12 +226,12 @@ class MainWindow(QMainWindow):
         version = QLabel(f"v{__version__}")
         version.setObjectName("appVersion")
 
-        self._btn_theme = QPushButton()
-        self._btn_theme.setObjectName("ghost")
-        self._btn_theme.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_theme.setToolTip("레트로 · 다크 · 라이트 화면을 차례로 전환합니다.")
-        self._btn_theme.setAccessibleName("테마 전환")
-        self._btn_theme.clicked.connect(self._toggle_theme)
+        self._btn_fullscreen = QPushButton("전체 화면")
+        self._btn_fullscreen.setObjectName("ghost")
+        self._btn_fullscreen.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_fullscreen.setToolTip("창을 화면 전체로 키웁니다.  (F11, 나가기: Esc)")
+        self._btn_fullscreen.setAccessibleName("전체 화면")
+        self._btn_fullscreen.clicked.connect(self._toggle_fullscreen)
 
         btn_templates = QPushButton("인사말 템플릿")
         btn_templates.setObjectName("ghost")
@@ -259,7 +258,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(title)
         layout.addWidget(version)
         layout.addStretch()
-        layout.addWidget(self._btn_theme)
+        layout.addWidget(self._btn_fullscreen)
         layout.addWidget(btn_restore)
         layout.addWidget(btn_templates)
         layout.addWidget(btn_help)
@@ -398,7 +397,6 @@ class MainWindow(QMainWindow):
             "홍길동 10만원 친척      김가족,김친지 30만 이모",
             "최동료 10만 식권2 소인1      박지성 5만원 불참",
             "엑셀(.xlsx) · CSV 를 끌어다 놓으면 기존 목록에 합쳐집니다.",
-            "내보낸 엑셀을 고쳐서 다시 올리면 고친 내용으로 바뀝니다.",
         ):
             label = QLabel(line)
             label.setObjectName("hint")
@@ -406,12 +404,9 @@ class MainWindow(QMainWindow):
             hint_layout.addWidget(label)
 
         self._input = DropTextEdit()
-        self._input.setPlaceholderText(
-            "카톡이나 메모장에 적어둔 축의금 내역을 그대로 붙여넣으세요.\n\n"
-            "1 홍길동 200,000 친척모임\n"
-            "2 최동료 100,000 A보건지소 식권2\n"
-            "3 김가족,김친지 300,000 이모"
-        )
+        # Qt 6 은 자리표시 문구를 한 줄로만 그린다(여러 줄이면 첫 줄만 보이고 잘린다).
+        # 입력 예시는 바로 위 안내 상자에 있으므로 여기는 한 줄로 충분하다.
+        self._input.setPlaceholderText("카톡·메모장 명단을 그대로 붙여넣으세요.")
         self._input.setToolTip("자유 형식으로 붙여넣으면 됩니다. 양식을 맞출 필요 없습니다.")
         self._input.setAccessibleName("축의금 명단 입력")
         self._input.textChanged.connect(self._on_input_changed)
@@ -619,26 +614,28 @@ class MainWindow(QMainWindow):
             (QKeySequence.StandardKey.Save, self._handle_export, "내보내기"),
             (QKeySequence("Ctrl+Shift+Return"), self._handle_append, "추가"),
             (QKeySequence.StandardKey.Find, lambda: self._search.setFocus(), "검색"),
+            (QKeySequence(Qt.Key.Key_F11), self._toggle_fullscreen, "전체 화면"),
         ):
             action = QAction(name, self)
             action.setShortcut(shortcut)
             action.triggered.connect(slot)
             self.addAction(action)
 
+        # Esc 는 전체 화면일 때만 가로챈다. 평소에는 셀 편집 취소 등에 쓰여야 한다.
+        self._esc_action = QAction("전체 화면 나가기", self)
+        self._esc_action.setShortcut(QKeySequence(Qt.Key.Key_Escape))
+        self._esc_action.triggered.connect(self._leave_fullscreen)
+        self._esc_action.setEnabled(False)
+        self.addAction(self._esc_action)
+
     # -------------------------------------------------------------- 테마
 
     def _palette(self) -> Palette:
-        return palette_named(self._config.theme)
-
-    def _next_theme(self) -> str:
-        index = THEMES.index(self._config.theme) if self._config.theme in THEMES else 0
-        return THEMES[(index + 1) % len(THEMES)]
+        return PALETTE
 
     def _apply_theme(self) -> None:
         palette = self._palette()
-        self.setStyleSheet(build_stylesheet(palette))
-        # 버튼에는 누르면 바뀔 테마를 적는다.
-        self._btn_theme.setText(THEME_LABELS[self._next_theme()])
+        apply_application_theme(palette)
         if hasattr(self, "_quest_bar"):
             self._quest_bar.apply_palette(palette)
 
@@ -646,7 +643,7 @@ class MainWindow(QMainWindow):
             self._relation_delegate.set_palette(palette)
             self._copy_delegate.set_palette(palette)
             review_color = QColor(palette.warning_surface)
-            review_color.setAlpha(210 if palette.name == "light" else 150)
+            review_color.setAlpha(150)
             self._model.set_review_color(review_color)
             self._table.viewport().update()
         if hasattr(self, "_toast"):
@@ -657,11 +654,35 @@ class MainWindow(QMainWindow):
         palette = self._palette()
         self._toast.apply_palette(palette.surface, palette.text, palette.border_strong, palette.accent)
 
-    def _toggle_theme(self) -> None:
-        self._config.theme = self._next_theme()
-        self._config.dark_mode = self._config.theme != "light"
-        self._apply_theme()
-        self._schedule_config_save()
+    # ------------------------------------------------------------ 전체 화면
+
+    def _toggle_fullscreen(self) -> None:
+        if self.isFullScreen():
+            self._leave_fullscreen()
+        else:
+            self._was_maximized = self.isMaximized()
+            self.showFullScreen()
+        self._update_fullscreen_button()
+
+    def _leave_fullscreen(self) -> None:
+        if not self.isFullScreen():
+            return
+        # 전체 화면 전에 최대화였으면 최대화로, 아니면 원래 크기로 돌아간다.
+        if getattr(self, "_was_maximized", False):
+            self.showMaximized()
+        else:
+            self.showNormal()
+        self._update_fullscreen_button()
+
+    def _update_fullscreen_button(self) -> None:
+        full = self.isFullScreen()
+        self._esc_action.setEnabled(full)
+        self._btn_fullscreen.setText("창 모드" if full else "전체 화면")
+        self._btn_fullscreen.setToolTip(
+            "원래 창 크기로 돌아갑니다.  (F11 또는 Esc)"
+            if full
+            else "창을 화면 전체로 키웁니다.  (F11, 나가기: Esc)"
+        )
 
     # ------------------------------------------------------------ 데이터
 
@@ -1152,9 +1173,23 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("자동 저장에 실패했습니다. 로그를 확인해 주세요.", 8000)
 
     def _save_config(self) -> None:
-        self._config.window_width = self.width()
-        self._config.window_height = self.height()
+        # 최대화 · 전체 화면일 때의 크기는 화면 크기일 뿐이다. 그걸 저장하면
+        # 다음 실행에서 화면만 한 '보통 창' 이 열린다. 보통 크기만 기억한다.
+        if self.isFullScreen():
+            self._config.maximized = getattr(self, "_was_maximized", False)
+        else:
+            self._config.maximized = self.isMaximized()
+            if not self.isMaximized():
+                self._config.window_width = self.width()
+                self._config.window_height = self.height()
         self._config_repo.save(self._config)
+
+    def show_initial(self) -> None:
+        """지난번 창 상태(최대화 여부)대로 띄운다."""
+        if self._config.maximized:
+            self.showMaximized()
+        else:
+            self.show()
 
     # -------------------------------------------------------------- 내보내기
 
@@ -1199,6 +1234,11 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_toast"):
             self._toast.reposition()
         self._schedule_config_save()
+
+    def changeEvent(self, event) -> None:  # noqa: N802
+        super().changeEvent(event)
+        if hasattr(self, "_btn_fullscreen"):
+            self._update_fullscreen_button()
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
         # 디바운스 타이머가 아직 돌고 있을 수 있으므로 즉시 저장한다.

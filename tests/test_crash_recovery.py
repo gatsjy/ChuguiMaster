@@ -113,3 +113,40 @@ class TestRestoreThroughWindow:
 
     def test_restore_button_exists(self, window):
         assert window._btn_restore.accessibleName() == "이전 시점 복구"
+
+
+class TestSingleInstance:
+    """창이 둘이면 서로의 자동 저장을 덮어써 한쪽 작업이 사라진다."""
+
+    _SCRIPT = (
+        "import sys, time, os\n"
+        "from chugui.app import acquire_single_instance\n"
+        "lock = acquire_single_instance()\n"
+        "print('locked' if lock else 'blocked', flush=True)\n"
+        "if sys.argv[1] == 'hold':\n"
+        "    time.sleep(30)\n"
+    )
+
+    def _spawn(self, mode, **kwargs):
+        import os
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        env = dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[1] / "src"))
+        return subprocess.Popen(
+            [sys.executable, "-c", self._SCRIPT, mode],
+            env=env, stdout=subprocess.PIPE, text=True, **kwargs,
+        )
+
+    def test_second_launch_is_blocked_and_crash_releases_lock(self):
+        holder = self._spawn("hold")
+        try:
+            assert holder.stdout.readline().strip() == "locked"
+            second = self._spawn("once")
+            assert second.communicate(timeout=30)[0].strip() == "blocked"
+        finally:
+            holder.kill()  # 강제 종료: 잠금을 풀지 못하고 죽는다
+            holder.wait(timeout=30)
+        after = self._spawn("once")
+        assert after.communicate(timeout=30)[0].strip() == "locked"

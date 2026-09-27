@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from chugui.services.quests import QUESTS, Progress, Quest, QuestTracker
-from chugui.ui.theme import Palette, Space
+from chugui.ui.theme import PALETTE, Palette, Space
 
 #: 단계 완료 문구가 안내 바에 머무는 시간.
 _DONE_MESSAGE_MS = 2500
@@ -75,34 +75,44 @@ class QuestBar(QFrame):
         self.setAccessibleName("다음 할 일")
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(Space.MD, Space.SM, Space.MD, Space.SM)
+        layout.setContentsMargins(Space.MD, Space.XS, Space.MD, Space.XS)
         layout.setSpacing(Space.MD)
 
-        text_box = QVBoxLayout()
-        text_box.setSpacing(0)
+        # 제목과 안내를 한 줄에 둔다. 두 줄이면 최소 창 높이(720px)에서
+        # 아래 입력 안내 상자가 눌려 글자가 겹쳤다.
+        text_box = QHBoxLayout()
+        text_box.setSpacing(Space.MD)
         self._title = QLabel()
         self._title.setObjectName("questTitle")
         self._hint = QLabel()
         self._hint.setObjectName("questHint")
+        self._title.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
         # 긴 안내가 창의 최소 폭을 밀어내지 않게 한다(좁으면 잘려 보일 뿐).
-        for label in (self._title, self._hint):
-            label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-            text_box.addWidget(label)
+        self._hint.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        text_box.addWidget(self._title)
+        text_box.addWidget(self._hint, 1)
 
         self._bar = PixelBar()
         self._bar.setAccessibleName("진행")
         self._bar.setMaximumWidth(220)
 
-        self._btn_log = QPushButton("전체 단계")
-        self._btn_log.setObjectName("ghost")
-        self._btn_log.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_log.setToolTip("모든 단계와 진행 상황을 봅니다.")
-        self._btn_log.setAccessibleName("전체 단계 보기")
-        self._btn_log.clicked.connect(self.logRequested)
+        # 버튼 대신 글자 링크. 버튼 높이가 안내 바를 키워 최소 창 높이를 넘겼다.
+        self._log_link = QLabel('<a href="steps">전체 단계 ›</a>')
+        self._log_link.setObjectName("questLink")
+        self._log_link.setTextFormat(Qt.TextFormat.RichText)
+        self._log_link.setTextInteractionFlags(
+            Qt.TextInteractionFlag.LinksAccessibleByMouse
+            | Qt.TextInteractionFlag.LinksAccessibleByKeyboard
+        )
+        self._log_link.setFocusPolicy(Qt.FocusPolicy.TabFocus)
+        self._log_link.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._log_link.setToolTip("모든 단계와 진행 상황을 봅니다.")
+        self._log_link.setAccessibleName("전체 단계 보기")
+        self._log_link.linkActivated.connect(lambda _: self.logRequested.emit())
 
         layout.addLayout(text_box, 1)
         layout.addWidget(self._bar)
-        layout.addWidget(self._btn_log)
+        layout.addWidget(self._log_link)
 
         self._progress: Progress | None = None
         self._done_timer = QTimer(self)
@@ -169,6 +179,7 @@ class QuestLogDialog(QDialog):
         layout.addWidget(header)
 
         bar = PixelBar()
+        bar.set_colors(PALETTE.accent, PALETTE.surface_hover)
         bar.set_ratio(progress.ratio)
         layout.addWidget(bar)
         layout.addSpacing(Space.SM)
