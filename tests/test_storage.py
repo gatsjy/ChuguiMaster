@@ -74,15 +74,17 @@ class TestConfigRepository:
 
     def test_round_trip(self):
         repo = ConfigRepository()
-        repo.save(AppConfig(adult_meal=55_000, child_meal=30_000, maximized=True, quests=["paste"]))
+        repo.save(AppConfig(adult_meal=55_000, child_meal=30_000, maximized=True))
         loaded = repo.load()
         assert (loaded.adult_meal, loaded.child_meal, loaded.maximized) == (55_000, 30_000, True)
-        assert loaded.quests == ["paste"]
 
     def test_old_theme_keys_are_ignored(self):
         """다크·라이트를 쓰던 구버전 설정도 문제없이 열린다(화면은 레트로 하나)."""
         repo = ConfigRepository()
-        repo.path.write_text(json.dumps({"dark_mode": "false", "theme": "light", "adult_meal": 50000}), encoding="utf-8")
+        repo.path.write_text(
+            json.dumps({"dark_mode": "false", "theme": "light", "quests": ["paste"], "adult_meal": 50000}),
+            encoding="utf-8",
+        )
         assert repo.load().adult_meal == 50_000
 
     @pytest.mark.parametrize("stored", ["true", "yes", 1])

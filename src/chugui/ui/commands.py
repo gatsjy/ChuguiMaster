@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 from PySide6.QtGui import QUndoCommand
 
 if TYPE_CHECKING:  # pragma: no cover - 순환 참조 회피
+    from chugui.models import Guest
     from chugui.ui.guest_model import Column, GuestTableModel
 
 
@@ -42,3 +43,23 @@ class EditGuestCommand(QUndoCommand):
 
     def undo(self) -> None:
         self._model.commit_edit(self._row, self._column, self._old_value)
+
+
+class RemoveGuestsCommand(QUndoCommand):
+    """줄 삭제. 되돌리면 지운 줄이 원래 자리로 돌아온다.
+
+    셀 편집 명령은 행 번호를 들고 있다. 삭제 · 복원이 스택 순서(LIFO)대로만 일어나므로
+    그 번호가 가리키는 줄은 되돌리기 · 다시하기 내내 같은 하객으로 유지된다.
+    """
+
+    def __init__(self, model: GuestTableModel, rows: list[int], label: str) -> None:
+        super().__init__(label)
+        self._model = model
+        self._rows = list(rows)
+        self._removed: list[tuple[int, Guest]] = []
+
+    def redo(self) -> None:
+        self._removed = self._model.commit_remove(self._rows)
+
+    def undo(self) -> None:
+        self._model.commit_insert(self._removed)
