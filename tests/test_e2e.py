@@ -61,9 +61,8 @@ def test_full_user_session(app_window, qt_app, answers, tmp_path):
     w = app_window
     model = w._model
 
-    # 1. 빈 화면: 다음 할 일은 붙여넣기, 표 대신 안내.
+    # 1. 빈 화면: 표 대신 안내.
     assert w._table_stack.currentWidget() is w._empty_state
-    assert "명단 붙여넣기" in w._quest_bar.title_text
 
     # 2. 붙여넣기 → 미리보기가 뜬다.
     w._input.setPlainText(ROSTER)
@@ -83,7 +82,7 @@ def test_full_user_session(app_window, qt_app, answers, tmp_path):
         Attendance.ABSENT, Payment.TRANSFER, 0,
     )
 
-    # 4. 확인 필요 행 고치기(표에서 금액 수정) → 배너가 사라지고 3단계 완료.
+    # 4. 확인 필요 행 고치기(표에서 금액 수정) → 배너가 사라진다.
     row = _row_of(w, "무명")
     assert model.setData(model.index(row, Column.AMOUNT), "50000", Qt.ItemDataRole.EditRole)
     qt_app.processEvents()
@@ -93,7 +92,6 @@ def test_full_user_session(app_window, qt_app, answers, tmp_path):
     model.guestsChanged.emit()
     qt_app.processEvents()
     assert not w._review_banner.isVisible()
-    assert w._tracker.is_cleared("review")
 
     # 5. 셀 편집 되돌리기 · 다시 실행.
     hong = _row_of(w, "홍길동")
@@ -110,7 +108,6 @@ def test_full_user_session(app_window, qt_app, answers, tmp_path):
     qt_app.processEvents()
     expected = settle(model.guests, 50_000, 30_000)
     assert w._card_net.value_label.text() == f"{expected.net_amount:,}원"
-    assert w._tracker.is_cleared("meal")
 
     # 7. 인사 복사 → 클립보드, 발송 체크는 따로.
     proxy_index = w._proxy.mapFromSource(model.index(hong, Column.COPY))
@@ -119,7 +116,16 @@ def test_full_user_session(app_window, qt_app, answers, tmp_path):
     assert not model.guests[hong].sent_thanks
     model.setData(model.index(hong, Column.SENT), Qt.CheckState.Checked.value, Qt.ItemDataRole.CheckStateRole)
     assert model.guests[hong].sent_thanks
-    assert w._tracker.is_cleared("copy") and w._tracker.is_cleared("sent")
+
+    # 7-1. 줄 삭제(표에서 Delete) → Ctrl+Z 로 같은 자리에 복원.
+    w._table.setFocus()
+    lee = _row_of(w, "이영희")
+    w._table.selectRow(w._proxy.mapFromSource(model.index(lee, 0)).row())
+    QTest.keyClick(w._table, Qt.Key.Key_Delete)
+    assert "이영희" not in [g.name for g in model.guests]
+    assert [g.guest_id for g in model.guests] == list(range(1, len(model.guests) + 1))
+    QTest.keyClick(w, Qt.Key.Key_Z, Qt.KeyboardModifier.ControlModifier)
+    assert model.guests[lee].name == "이영희"
 
     # 8. 검색 · 관계 필터 · 미발송 필터.
     w._search.setText("이영희")
@@ -152,7 +158,6 @@ def test_full_user_session(app_window, qt_app, answers, tmp_path):
     answers["save_path"] = str(xlsx)
     QTest.keyClick(w, Qt.Key.Key_S, Qt.KeyboardModifier.ControlModifier)
     assert xlsx.exists()
-    assert w._tracker.is_cleared("export")
 
     from openpyxl import load_workbook
 
@@ -218,7 +223,7 @@ def test_full_user_session(app_window, qt_app, answers, tmp_path):
     qt_app.processEvents()
     assert not w.isFullScreen()
 
-    # 16. 종료 → 재시작: 명단 · 입력 · 식대 · 진행 단계가 그대로.
+    # 16. 종료 → 재시작: 명단 · 입력 · 식대가 그대로.
     snapshot = [(g.name, g.amount, g.sent_thanks) for g in model.guests]
     typed = w._input.toPlainText()
     w.close()
@@ -234,7 +239,6 @@ def test_full_user_session(app_window, qt_app, answers, tmp_path):
         assert [(g.name, g.amount, g.sent_thanks) for g in again._model.guests] == snapshot
         assert again._input.toPlainText() == typed
         assert (again._spin_adult.value(), again._spin_child.value()) == (50_000, 30_000)
-        assert again._tracker.progress().all_clear
         assert not again._crash_report.crashed  # 정상 종료였다
     finally:
         again.close()

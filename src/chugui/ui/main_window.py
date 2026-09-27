@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import QModelIndex, Qt, QTimer
+from PySide6.QtCore import QEvent, QModelIndex, QObject, Qt, QTimer
 from PySide6.QtGui import (
     QAction,
     QCloseEvent,
@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QSizePolicy,
@@ -55,9 +56,8 @@ from chugui.parsing.excel_parser import ExcelParseError, read_spreadsheet
 from chugui.parsing.text_parser import parse_text
 from chugui.samples import SAMPLE_TEXT
 from chugui.services.exporter import export_to_excel
-from chugui.services.merge import merge_guests
+from chugui.services.merge import merge_guests, sync_with_text
 from chugui.services.messages import MessageService
-from chugui.services.quests import Quest, QuestSnapshot, QuestTracker
 from chugui.services.settlement import Settlement, settle
 from chugui.services.text_export import export_text
 from chugui.storage.crash import CrashSentinel
@@ -83,7 +83,6 @@ from chugui.ui.dialogs import (
     TextExportDialog,
 )
 from chugui.ui.guest_model import Column, GuestFilterProxy, GuestTableModel
-from chugui.ui.quest_widgets import QuestBar, QuestLogDialog
 from chugui.ui.theme import PALETTE, Palette, Size, Space, apply_application_theme
 from chugui.ui.widgets import DropTextEdit, EmptyState, MetricCard, ToastNotification
 
@@ -97,8 +96,9 @@ _ALL_RELATIONS = "전체 관계"
 
 #: 주기적 스냅샷 간격. 사람 실수를 되돌릴 지점을 꾸준히 남긴다.
 _SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000
-#: 되돌리기 토스트가 떠 있는 시간. 실수를 알아차릴 시간을 넉넉히 준다.
-_UNDO_TOAST_MS = 9000
+#: 되돌리기 토스트가 떠 있는 시간. 길면 화면을 오래 가린다는 의견을 따라 3초로 줄였다.
+#: 놓쳐도 Ctrl+Z · '이전 시점 복구' 로 되돌릴 수 있다.
+_UNDO_TOAST_MS = 3000
 #: 입력 미리보기 디바운스. 타이핑 중 매 글자 파싱하지 않는다.
 _PREVIEW_DEBOUNCE_MS = 300
 
@@ -132,10 +132,13 @@ class MainWindow(QMainWindow):
         self._crash_report = self._sentinel.arm()
         #: 직전 파괴 연산 이전 상태. 토스트의 되돌리기 버튼이 이걸 되살린다.
         self._undo_payload: dict | None = None
+        #: 표가 마지막으로 입력창과 맞춰졌을 때의 입력창 줄들. Enter 로 갱신할 때
+        #: '사용자가 지운 줄' 을 가려내는 기준이다. None 이면 표가 입력창과 무관하다
+        #: (엑셀에서 통째로 불러온 명단 등) — 이때 갱신하면 옛 글이 중복으로 들어간다.
+        self._synced_lines: list[str] | None = []
 
         self._config: AppConfig = self._config_repo.load()
         self._messages = MessageService(self._template_repo.load())
-        self._tracker = QuestTracker(self._config.quests)
 
         self._model = GuestTableModel(self._messages, self)
         self._proxy = GuestFilterProxy(self)
@@ -180,11 +183,6 @@ class MainWindow(QMainWindow):
         self._toast = ToastNotification(self)
         self._apply_toast_palette()
 
-        # 다음 단계에서 쓸 버튼·영역에 테두리를 둘러 '다음에 누를 곳' 을 알려 준다.
-        self._quest_target: QWidget | None = None
-        self._quests_ready = True
-        self._refresh_quests()
-
         self._model.guestsChanged.connect(self._on_guests_changed)
         self._proxy.rowsInserted.connect(self._update_empty_state)
         self._proxy.rowsRemoved.connect(self._update_empty_state)
@@ -203,9 +201,6 @@ class MainWindow(QMainWindow):
         root.setSpacing(Space.MD)
 
         root.addLayout(self._build_header())
-        self._quest_bar = QuestBar()
-        self._quest_bar.logRequested.connect(self._open_quest_log)
-        root.addWidget(self._quest_bar)
         root.addLayout(self._build_kpi_row())
         root.addWidget(self._build_settings_strip())
         root.addWidget(self._build_review_banner())
@@ -416,6 +411,7 @@ class MainWindow(QMainWindow):
         self._input.setToolTip("자유 형식으로 붙여넣으면 됩니다. 양식을 맞출 필요 없습니다.")
         self._input.setAccessibleName("축의금 명단 입력")
         self._input.textChanged.connect(self._on_input_changed)
+        self._input.installEventFilter(self)
         self._input.fileDropped.connect(self._load_file)
 
         # 파싱을 누르기 전에도 결과를 알려 준다.
@@ -544,6 +540,7 @@ class MainWindow(QMainWindow):
         self._btn_export = btn_export
 
         btn_text = QPushButton("텍스트로 내보내기")
+        btn_text.setObjectName("successOutline")
         btn_text.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_text.setToolTip(
             "명단과 정산 요약을 글로 뽑습니다. 카톡에 붙여넣거나 .txt 로 저장합니다.  (Ctrl+Shift+S)"
@@ -556,7 +553,8 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._table_stack, 1)
         export_row = QHBoxLayout()
         export_row.setSpacing(Space.SM)
-        export_row.addWidget(btn_export, 3)
+        # 두 버튼은 같은 일(내보내기)의 두 형식이다. 같은 폭 · 같은 높이로 둔다.
+        export_row.addWidget(btn_export, 1)
         export_row.addWidget(btn_text, 1)
         layout.addLayout(export_row)
         return card
@@ -566,7 +564,16 @@ class MainWindow(QMainWindow):
         table.setModel(self._proxy)
         table.setAlternatingRowColors(True)
         table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
-        table.setSelectionMode(QTableView.SelectionMode.SingleSelection)
+        # 여러 줄을 한 번에 지울 수 있게 Ctrl · Shift 선택을 허용한다.
+        table.setSelectionMode(QTableView.SelectionMode.ExtendedSelection)
+        table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        table.customContextMenuRequested.connect(self._show_table_menu)
+        # Delete 는 표에 포커스가 있을 때만. 입력창 · 셀 편집기의 Delete 를 빼앗지 않는다.
+        self._delete_action = QAction("선택한 줄 삭제", table)
+        self._delete_action.setShortcut(QKeySequence(QKeySequence.StandardKey.Delete))
+        self._delete_action.setShortcutContext(Qt.ShortcutContext.WidgetShortcut)
+        self._delete_action.triggered.connect(self._delete_selected_rows)
+        table.addAction(self._delete_action)
         table.setSortingEnabled(True)
         # setSortingEnabled(True)는 0번 열 **내림차순**을 기본으로 잡는다.
         # 그대로 두면 입력한 순서의 역순으로 보여 사용자가 자기 명단을 못 알아본다.
@@ -580,7 +587,7 @@ class MainWindow(QMainWindow):
             QTableView.EditTrigger.DoubleClicked | QTableView.EditTrigger.SelectedClicked
         )
         table.setAccessibleName("하객 목록")
-        table.setToolTip("값을 더블클릭하면 직접 수정할 수 있습니다.")
+        table.setToolTip("값을 더블클릭하면 직접 수정할 수 있습니다. 우클릭하면 줄을 지울 수 있습니다.")
 
         palette = self._palette()
         self._relation_delegate = RelationBadgeDelegate(palette, table)
@@ -656,8 +663,6 @@ class MainWindow(QMainWindow):
     def _apply_theme(self) -> None:
         palette = self._palette()
         apply_application_theme(palette)
-        if hasattr(self, "_quest_bar"):
-            self._quest_bar.apply_palette(palette)
 
         if hasattr(self, "_relation_delegate"):
             self._relation_delegate.set_palette(palette)
@@ -715,6 +720,9 @@ class MainWindow(QMainWindow):
         if state.guests:
             self._model.set_guests(state.guests)
             self._toast.show_message(f"이전 작업을 복구했습니다 · {len(state.guests)}건")
+            # 되살린 것이 있을 때만 기준선을 바꾼다. 무조건 바꾸면 기동 직후 사용자가 한 일
+            # (예: 엑셀 다시 올리기로 끊어 둔 연결)을 덮어쓴다.
+            self._synced_lines = self._baseline_for(state.guests, self._input.toPlainText())
         self._refresh_summary()
         self._update_empty_state()
         self._report_previous_crash()
@@ -739,6 +747,7 @@ class MainWindow(QMainWindow):
             self._begin_destructive("파싱 덮어쓰기 전")
 
         self._model.set_guests(guests)
+        self._synced_lines = self._input.toPlainText().splitlines()
         review = sum(1 for guest in guests if guest.needs_review)
         message = f"{len(guests)}건 취합 완료"
         if review:
@@ -821,6 +830,7 @@ class MainWindow(QMainWindow):
             return
         self._begin_destructive("엑셀 다시 불러오기 전")
         self._model.set_guests(incoming)
+        self._synced_lines = None  # 표는 이제 파일에서 왔다. 입력창과 연결을 끊는다.
         review = sum(1 for guest in incoming if guest.needs_review)
         message = f"{path.name} · 엑셀에서 고친 내용 {len(incoming)}건 반영"
         if review:
@@ -845,6 +855,7 @@ class MainWindow(QMainWindow):
         self._input.setPlainText(SAMPLE_TEXT)
         guests = parse_text(SAMPLE_TEXT)
         self._model.set_guests(guests)
+        self._synced_lines = SAMPLE_TEXT.splitlines()
         self._offer_undo(f"샘플 {len(guests)}건을 불러왔습니다.")
 
     def _handle_clear(self) -> None:
@@ -864,6 +875,7 @@ class MainWindow(QMainWindow):
         self._begin_destructive("전체 비우기 전")
         self._input.clear()
         self._model.clear()
+        self._synced_lines = []
         self._session_repo.clear()
         self._offer_undo("모두 지웠습니다.")
 
@@ -881,17 +893,53 @@ class MainWindow(QMainWindow):
         QApplication.clipboard().setText(message)
         # 복사는 '보냄'이 아니다. 발송 여부는 사용자가 직접 체크한다.
         self._toast.show_message(f"{guest.name} 인사말 복사됨 · Ctrl+V 로 붙여넣어 발송하세요")
-        self._apply_quest_update(self._tracker.mark("copy"))
+
+    def _selected_source_rows(self) -> list[int]:
+        rows = {
+            self._proxy.mapToSource(index).row()
+            for index in self._table.selectionModel().selectedRows()
+        }
+        return sorted(row for row in rows if row >= 0)
+
+    def _show_table_menu(self, position) -> None:
+        index = self._table.indexAt(position)
+        if not index.isValid():
+            return
+        # 선택 밖의 줄을 우클릭하면 그 줄만 선택한다(탐색기 · 엑셀과 같은 동작).
+        if not self._table.selectionModel().isRowSelected(index.row(), QModelIndex()):
+            self._table.selectRow(index.row())
+        rows = self._selected_source_rows()
+        if not rows:
+            return
+
+        menu = QMenu(self)
+        copy_action = menu.addAction("인사말 복사")
+        copy_action.setEnabled(len(rows) == 1)
+        menu.addSeparator()
+        delete_action = menu.addAction(f"{len(rows)}줄 삭제" if len(rows) > 1 else "줄 삭제")
+        delete_action.setShortcut(QKeySequence(QKeySequence.StandardKey.Delete))
+        chosen = menu.exec(self._table.viewport().mapToGlobal(position))
+        if chosen is delete_action:
+            self._delete_rows(rows)
+        elif chosen is copy_action:
+            self._on_copy_clicked(self._proxy.mapFromSource(self._model.index(rows[0], Column.COPY)))
+
+    def _delete_selected_rows(self) -> None:
+        rows = self._selected_source_rows()
+        if rows:
+            self._delete_rows(rows)
+
+    def _delete_rows(self, rows: list[int]) -> None:
+        """줄을 지운다. 확인 창 대신 곧바로 되돌릴 수 있게 한다(토스트 · Ctrl+Z · 시점)."""
+        names = [self._model.guests[row].name for row in rows]
+        self._begin_destructive("줄 삭제 전")
+        self._model.remove_rows(rows)
+        label = names[0] if len(names) == 1 else f"{names[0]} 외 {len(names) - 1}명"
+        self._offer_undo(f"{label} 삭제 · Ctrl+Z 로도 되돌릴 수 있습니다")
 
     def _on_meal_cost_changed(self) -> None:
-        changed = (self._config.adult_meal, self._config.child_meal) != (
-            self._spin_adult.value(),
-            self._spin_child.value(),
-        )
         self._config.adult_meal = self._spin_adult.value()
         self._config.child_meal = self._spin_child.value()
-        if changed:
-            self._apply_quest_update(self._tracker.mark("meal"))
         self._refresh_summary()
         self._schedule_config_save()
 
@@ -965,7 +1013,6 @@ class MainWindow(QMainWindow):
 
         self._update_review_banner(result)
         self._update_status_bar(result)
-        self._observe_quests(result)
 
     def _update_review_banner(self, result: Settlement) -> None:
         if result.review_count:
@@ -1032,7 +1079,56 @@ class MainWindow(QMainWindow):
     def _on_input_changed(self) -> None:
         self._schedule_autosave()
         self._preview_timer.start()
-        self._observe_quests(self._current_settlement())
+
+    # ------------------------------------------------ 입력창 → 표 갱신
+
+    @staticmethod
+    def _baseline_for(guests: list[Guest], raw_text: str) -> list[str] | None:
+        """저장된 상태를 되살릴 때의 기준선. 텍스트에서 온 줄이 하나도 없으면 연결하지 않는다."""
+        if guests and not any(guest.source is Source.TEXT for guest in guests):
+            return None
+        return raw_text.splitlines()
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802
+        if (
+            watched is self._input
+            and event.type() == QEvent.Type.KeyPress
+            and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
+            and not event.modifiers() & Qt.KeyboardModifier.ControlModifier
+        ):
+            # 줄바꿈이 입력창에 들어간 다음에 반영한다.
+            QTimer.singleShot(0, self._sync_from_input)
+        return super().eventFilter(watched, event)
+
+    def _sync_from_input(self) -> None:
+        """Enter 를 칠 때마다 입력창 내용을 표에 반영한다(표에서 한 수정은 유지)."""
+        if self._synced_lines is None:
+            self.statusBar().showMessage(
+                "지금 표는 엑셀 파일에서 불러온 명단이라 입력창과 연결되어 있지 않습니다. "
+                "입력창 내용으로 새로 만들려면 Ctrl+Enter",
+                6000,
+            )
+            return
+        text = self._input.toPlainText()
+        result = sync_with_text(self._model.guests, parse_text(text), self._synced_lines)
+        self._synced_lines = text.splitlines()
+        if not result.changed:
+            return
+        if any(guest.sent_thanks for guest in result.removed):
+            # 발송 체크까지 한 줄을 지웠다. 되돌릴 지점을 남긴다.
+            self._snapshots.capture(self._current_payload(), "입력 수정 전")
+
+        bar = self._table.verticalScrollBar()
+        position = bar.value()
+        self._model.set_guests(result.guests)
+        bar.setValue(position)
+
+        parts = [f"표 갱신 · {len(result.guests)}건"]
+        if result.added:
+            parts.append(f"새 줄 {result.added}")
+        if result.removed:
+            parts.append(f"지운 줄 {len(result.removed)}")
+        self.statusBar().showMessage(" · ".join(parts), 3000)
 
     def _update_preview(self) -> None:
         """입력창 아래에 해석 결과를 요약해 보여 준다."""
@@ -1075,68 +1171,10 @@ class MainWindow(QMainWindow):
         self._begin_destructive("목록 추가 전")
         result = merge_guests(self._model.guests, incoming, skip_exact_duplicates=True)
         self._model.set_guests(result.guests)
+        self._synced_lines = self._input.toPlainText().splitlines()
         self._offer_undo(f"{result.summary} · 총 {len(result.guests)}건")
         if result.duplicate_count:
             self._chk_review.setChecked(True)
-
-    # ------------------------------------------------------------ 단계 안내
-
-    def _observe_quests(self, result: Settlement) -> None:
-        if not hasattr(self, "_tracker") or not hasattr(self, "_quest_bar"):
-            return
-        snapshot = QuestSnapshot(
-            has_input=bool(self._input.toPlainText().strip()),
-            guest_count=result.guest_count,
-            review_count=result.review_count,
-            sent_count=result.sent_count,
-        )
-        self._apply_quest_update(self._tracker.observe(snapshot))
-
-    def _apply_quest_update(self, done: tuple[Quest, ...]) -> None:
-        # 진행 상황을 먼저 갱신해야 완료 문구의 '다음:' 이 새 단계를 가리킨다.
-        self._refresh_quests()
-        if done:
-            self._quest_bar.announce_done(done)
-            self._config.quests = self._tracker.cleared_keys
-            self._schedule_config_save()
-
-    def _refresh_quests(self) -> None:
-        if not hasattr(self, "_quests_ready"):
-            return  # 생성자 도중. 준비가 끝나면 다시 불린다.
-        progress = self._tracker.progress()
-        self._quest_bar.set_progress(progress)
-        targets: dict[str, QWidget] = {
-            "input": self._input,
-            "parse": self._btn_parse,
-            "table": self._table,
-            "meal": self._meal_strip,
-            "export": self._btn_export,
-        }
-        target = targets.get(progress.current.target) if progress.current else None
-        if target is not self._quest_target:
-            self._set_quest_highlight(self._quest_target, False)
-            self._set_quest_highlight(target, True)
-            self._quest_target = target
-
-    @staticmethod
-    def _set_quest_highlight(widget: QWidget | None, on: bool) -> None:
-        if widget is None:
-            return
-        widget.setProperty("questTarget", "on" if on else "off")
-        # 동적 속성은 다시 polish 해야 스타일시트에 반영된다.
-        widget.style().unpolish(widget)
-        widget.style().polish(widget)
-        widget.update()
-
-    def _open_quest_log(self) -> None:
-        dialog = QuestLogDialog(self._tracker, self)
-        dialog.exec()
-        if dialog.reset_requested:
-            self._tracker.reset()
-            self._config.quests = []
-            self._schedule_config_save()
-            self._refresh_quests()
-            self._toast.show_message("단계 안내를 처음부터 다시 보여 드립니다.")
 
     # ------------------------------------------------- 스냅샷 · 되돌리기
 
@@ -1178,6 +1216,7 @@ class MainWindow(QMainWindow):
         self._input.setPlainText(state.raw_text)
         self._input.blockSignals(False)
         self._model.set_guests(state.guests)
+        self._synced_lines = self._baseline_for(state.guests, state.raw_text)
         self._save_session()
 
     # ------------------------------------------------------------ 영속화
@@ -1245,7 +1284,6 @@ class MainWindow(QMainWindow):
             QApplication.restoreOverrideCursor()
 
         self._toast.show_message("엑셀 저장 완료")
-        self._apply_quest_update(self._tracker.mark("export"))
         self.statusBar().showMessage(f"저장됨: {file_path}", 8000)
 
     def _handle_text_export(self) -> None:

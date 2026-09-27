@@ -87,3 +87,28 @@ class TestRelations:
 def test_pay_apps_are_transfers():
     assert parse_line("홍길동 5만원 카카오페이").payment is Payment.TRANSFER
     assert Payment.coerce("네이버페이") is Payment.TRANSFER
+
+
+class TestCompoundHead:
+    """합성어는 마지막 기관명이 머리다. '경북대학교병원' 이 학교로 분류되던 사용자 제보."""
+
+    @pytest.mark.parametrize(
+        ("line", "relation"),
+        [
+            ("김현지 20만원 경북대학교병원", Relation.WORK),
+            ("홍길동 5만 서울대병원", Relation.WORK),
+            ("홍길동 5만 대학병원", Relation.WORK),
+            ("홍길동 5만 대학교회", Relation.FAITH),
+            ("홍길동 5만 동네친구", Relation.OTHER),
+            # 사람 낱말은 기관명을 꾸밀 뿐이다
+            ("홍길동 5만 회사동기", Relation.WORK),
+            ("홍길동 5만 교회친구", Relation.FAITH),
+            ("홍길동 5만 대학동기", Relation.SCHOOL),
+            # 기존 규칙 유지
+            ("홍길동 5만 여명교회사랑부", Relation.FAITH),
+            ("홍길동 5만 고등학교 동창", Relation.SCHOOL),
+            ("홍길동 5만 한국대학교 교수", Relation.SCHOOL),
+        ],
+    )
+    def test_relation(self, line, relation):
+        assert parse_line(line).relation is relation
