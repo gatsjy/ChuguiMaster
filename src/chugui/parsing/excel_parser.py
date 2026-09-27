@@ -17,6 +17,7 @@ from __future__ import annotations
 import csv
 import logging
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,7 @@ from chugui.models import (
     Attendance,
     Guest,
     Payment,
+    Relation,
     Source,
     renumber,
 )
@@ -47,6 +49,16 @@ _TICKET_CHILD_KEYS = ("소인", "어린이", "아동")
 
 # 헤더 탐색 시 스캔할 최대 행 수.
 _MAX_HEADER_SCAN = 20
+
+#: 내보내기 명단 시트의 이름과 열 제목. 내보내기와 다시 불러오기가 함께 쓴다.
+EXPORT_SHEET = "축의금 명단"
+EXPORT_HEADERS: tuple[str, ...] = (
+    "순번", "성명", "축의금액", "관계분류", "소속", "참석여부", "수령경로",
+    "대인식권", "소인식권", "비고", "확인필요", "감사메시지", "발송완료",
+)
+#: 이 열들이 대부분 있으면 내보낸 명단으로 본다. 은행·지인 엑셀에는 없는 조합이다.
+_EXPORT_SIGNATURE: tuple[str, ...] = ("축의금액", "관계분류", "참석여부", "수령경로", "발송완료")
+_SENT_TRUE = frozenset({"완료", "발송", "발송완료", "o", "y", "yes", "true", "1", "✓", "v", "예"})
 
 
 class ExcelParseError(RuntimeError):
@@ -131,7 +143,8 @@ def _read_xlsx_rows(path: Path) -> list[list[str]]:
         raise ExcelParseError(f"엑셀 파일을 열 수 없습니다: {exc}") from exc
 
     try:
-        sheet = workbook.active
+        # 내보낸 파일을 '정산 요약' 시트가 선택된 채로 저장했어도 명단 시트를 읽는다.
+        sheet = workbook[EXPORT_SHEET] if EXPORT_SHEET in workbook.sheetnames else workbook.active
         if sheet is None:
             raise ExcelParseError("시트를 찾을 수 없습니다.")
         return [[_norm(cell) for cell in row] for row in sheet.iter_rows(values_only=True)]
@@ -238,12 +251,102 @@ def parse_rows(rows: Sequence[Sequence[str]], source: Source = Source.EXCEL) -> 
     return renumber(guests)
 
 
-def parse_spreadsheet(file_path: str | Path, source: Source = Source.EXCEL) -> list[Guest]:
-    """엑셀/CSV 파일을 읽어 Guest 목록을 만든다."""
+# ------------------------------------------------ 내보낸 파일 다시 불러오기
+
+
+def _find_export_header(rows: Sequence[Sequence[str]]) -> int | None:
+    """이 프로그램이 내보낸 명단이면 헤더 행 인덱스, 아니면 ``None``.
+
+    사용자가 열 순서를 바꾸거나 몇 열을 지워도 알아보도록, 특징적인 열
+    (축의금액 · 관계분류 · 참석여부 · 발송완료 등)이 대부분 남아 있으면 인정한다.
+    """
+    for index, row in enumerate(rows[:_MAX_HEADER_SCAN]):
+        present = sum(1 for title in _EXPORT_SIGNATURE if title in row)
+        if present >= len(_EXPORT_SIGNATURE) - 1 and "성명" in row:
+            return index
+    return None
+
+
+def _count_cell(text: str) -> int:
+    """식권 수 셀. 엑셀에서 고치면 ``2.0`` 처럼 올 수 있어 숫자로 해석한다."""
+    try:
+        return max(0, int(float(text.replace(",", ""))))
+    except ValueError:
+        return 0
+
+
+def _sent_cell(text: str) -> bool:
+    return text.strip().lower() in _SENT_TRUE
+
+
+def parse_export_rows(rows: Sequence[Sequence[str]]) -> list[Guest] | None:
+    """내보낸 명단을 **모든 열 그대로** 되살린다. 내보낸 형식이 아니면 ``None``.
+
+    일반 파서로 읽으면 관계는 추정으로 바뀌고('관계분류' 열이 소속으로 들어갔다),
+    참석여부 · 수령경로 · 발송완료가 사라졌다. 사용자가 엑셀에서 고친 값을
+    그대로 믿는 것이 이 경로의 목적이므로 추정하지 않는다.
+    """
+    header_index = _find_export_header(rows)
+    if header_index is None:
+        return None
+    headers = [cell.strip() for cell in rows[header_index]]
+    column = {title: headers.index(title) for title in EXPORT_HEADERS if title in headers}
+
+    def get(row: Sequence[str], title: str) -> str:
+        return _cell(row, column.get(title))
+
+    guests: list[Guest] = []
+    for row in rows[header_index + 1 :]:
+        raw_name = get(row, "성명").strip()
+        if not raw_name:
+            continue
+        names = split_names(raw_name.replace("&", ",")) or [raw_name]
+        amount = parse_amount(get(row, "축의금액"))
+        guest = Guest(
+            name=format_display_name(names),
+            names=names,
+            amount=amount,
+            relation=Relation.coerce(get(row, "관계분류")),
+            belong=get(row, "소속"),
+            attendance=Attendance.coerce(get(row, "참석여부")),
+            payment=Payment.coerce(get(row, "수령경로")),
+            adult_tickets=_count_cell(get(row, "대인식권")),
+            child_tickets=_count_cell(get(row, "소인식권")),
+            note=get(row, "비고"),
+            sent_thanks=_sent_cell(get(row, "발송완료")),
+            raw=raw_name,
+            source=Source.EXCEL,
+            # 사용자가 '확인필요' 칸을 비웠으면 확인을 마친 것으로 본다.
+            warnings=[w.strip() for w in get(row, "확인필요").split(" / ") if w.strip()],
+        )
+        if amount <= 0:
+            guest.add_warning(WARN_NO_AMOUNT)
+        guests.append(guest)
+    return renumber(guests)
+
+
+@dataclass(frozen=True)
+class SpreadsheetResult:
+    guests: list[Guest]
+    #: 이 프로그램이 내보낸 명단인가. 그렇다면 병합이 아니라 교체해야 한다.
+    is_export: bool
+
+
+def read_spreadsheet(file_path: str | Path, source: Source = Source.EXCEL) -> SpreadsheetResult:
+    """엑셀/CSV 파일을 읽는다. 내보낸 명단이면 모든 열을 그대로 되살린다."""
     path = Path(file_path)
     if not path.exists():
         raise ExcelParseError(f"파일을 찾을 수 없습니다: {path}")
     rows = _load_rows(path)
+    exported = parse_export_rows(rows)
+    if exported is not None:
+        logger.info("내보낸 명단 다시 불러오기: %s (%d건)", path.name, len(exported))
+        return SpreadsheetResult(exported, is_export=True)
     guests = parse_rows(rows, source=source)
     logger.info("스프레드시트 파싱 완료: %s (%d건)", path.name, len(guests))
-    return guests
+    return SpreadsheetResult(guests, is_export=False)
+
+
+def parse_spreadsheet(file_path: str | Path, source: Source = Source.EXCEL) -> list[Guest]:
+    """엑셀/CSV 파일을 읽어 Guest 목록을 만든다."""
+    return read_spreadsheet(file_path, source=source).guests

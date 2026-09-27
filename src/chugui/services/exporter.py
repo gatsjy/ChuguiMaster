@@ -11,26 +11,15 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from chugui.models import Guest
+from chugui.parsing.excel_parser import EXPORT_HEADERS, EXPORT_SHEET
 from chugui.services.messages import MessageService
 from chugui.services.settlement import Settlement
 
 logger = logging.getLogger(__name__)
 
-_HEADERS: tuple[tuple[str, int], ...] = (
-    ("순번", 6),
-    ("성명", 18),
-    ("축의금액", 14),
-    ("관계분류", 14),
-    ("소속", 18),
-    ("참석여부", 12),
-    ("수령경로", 12),
-    ("대인식권", 10),
-    ("소인식권", 10),
-    ("비고", 20),
-    ("확인필요", 22),
-    ("감사메시지", 60),
-    ("발송완료", 12),
-)
+# 열 제목은 다시 불러오기와 공유한다. 한쪽만 바꾸면 되살리기가 깨진다.
+_WIDTHS: tuple[int, ...] = (6, 18, 14, 14, 18, 12, 12, 10, 10, 20, 22, 60, 12)
+_HEADERS: tuple[tuple[str, int], ...] = tuple(zip(EXPORT_HEADERS, _WIDTHS, strict=True))
 
 
 def export_to_excel(
@@ -49,7 +38,7 @@ def export_to_excel(
 
     workbook = Workbook()
     sheet = workbook.active
-    sheet.title = "축의금 명단"
+    sheet.title = EXPORT_SHEET
 
     header_font = Font(bold=True, color="FFFFFF", size=11)
     header_fill = PatternFill("solid", fgColor="4F46E5")
