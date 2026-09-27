@@ -22,21 +22,16 @@ from chugui.storage.paths import config_file, session_file, templates_file
 logger = logging.getLogger(__name__)
 
 
-#: 테마 순환 순서. 테마 버튼을 누를 때마다 다음 것으로 넘어간다.
-THEMES: tuple[str, ...] = ("retro", "dark", "light")
-
-
 @dataclass
 class AppConfig:
     """앱 전역 설정."""
 
     adult_meal: int = DEFAULT_ADULT_MEAL
     child_meal: int = DEFAULT_CHILD_MEAL
-    dark_mode: bool = True
     window_width: int = 1360
     window_height: int = 880
-    #: 'retro' · 'dark' · 'light'. dark_mode 는 구버전 호환용으로 함께 기록한다.
-    theme: str = "retro"
+    #: 창을 최대화한 채 종료했는가. 다음 실행에서 최대화로 연다.
+    maximized: bool = False
     #: 마친 안내 단계 키 목록.
     quests: list[str] = field(default_factory=list)
 
@@ -45,8 +40,7 @@ class AppConfig:
             "schema_version": SCHEMA_VERSION,
             "adult_meal": self.adult_meal,
             "child_meal": self.child_meal,
-            "dark_mode": self.theme != "light",
-            "theme": self.theme,
+            "maximized": self.maximized,
             "quests": list(self.quests),
             "window_width": self.window_width,
             "window_height": self.window_height,
@@ -68,23 +62,7 @@ class AppConfig:
         config.child_meal = _int("child_meal", config.child_meal, 0, 1_000_000)
         config.window_width = _int("window_width", config.window_width, 900, 6000)
         config.window_height = _int("window_height", config.window_height, 600, 4000)
-        dark_mode = data.get("dark_mode", config.dark_mode)
-        if isinstance(dark_mode, bool):
-            config.dark_mode = dark_mode
-        elif isinstance(dark_mode, str):
-            normalized = dark_mode.strip().lower()
-            if normalized in {"true", "1", "yes", "on"}:
-                config.dark_mode = True
-            elif normalized in {"false", "0", "no", "off"}:
-                config.dark_mode = False
-
-        theme = data.get("theme")
-        if theme in THEMES:
-            config.theme = theme
-        elif not config.dark_mode:
-            # 테마 키가 없던 버전에서 밝은 화면을 고른 사용자의 선택은 존중한다.
-            config.theme = "light"
-        config.dark_mode = config.theme != "light"
+        config.maximized = data.get("maximized") is True
 
         quests = data.get("quests")
         if isinstance(quests, list):

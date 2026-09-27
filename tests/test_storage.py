@@ -70,36 +70,26 @@ class TestConfigRepository:
     def test_defaults_when_missing(self):
         config = ConfigRepository().load()
         assert config.adult_meal > 0
-        assert config.dark_mode is True
+        assert config.maximized is False
 
     def test_round_trip(self):
         repo = ConfigRepository()
-        repo.save(AppConfig(adult_meal=55_000, child_meal=30_000, theme="light", quests=["paste"]))
+        repo.save(AppConfig(adult_meal=55_000, child_meal=30_000, maximized=True, quests=["paste"]))
         loaded = repo.load()
-        assert (loaded.adult_meal, loaded.child_meal, loaded.theme) == (55_000, 30_000, "light")
-        assert loaded.dark_mode is False
+        assert (loaded.adult_meal, loaded.child_meal, loaded.maximized) == (55_000, 30_000, True)
         assert loaded.quests == ["paste"]
 
-    @pytest.mark.parametrize(
-        ("stored", "theme"),
-        [({"dark_mode": False}, "light"), ({"dark_mode": True}, "retro"), ({}, "retro"),
-         ({"theme": "dark"}, "dark"), ({"theme": "neon"}, "retro")],
-    )
-    def test_theme_migrates_from_older_configs(self, stored, theme):
-        """테마 키가 없던 버전에서 라이트를 고른 사용자는 라이트를 유지한다."""
+    def test_old_theme_keys_are_ignored(self):
+        """다크·라이트를 쓰던 구버전 설정도 문제없이 열린다(화면은 레트로 하나)."""
         repo = ConfigRepository()
-        repo.path.write_text(json.dumps(stored), encoding="utf-8")
-        assert repo.load().theme == theme
+        repo.path.write_text(json.dumps({"dark_mode": "false", "theme": "light", "adult_meal": 50000}), encoding="utf-8")
+        assert repo.load().adult_meal == 50_000
 
-
-    @pytest.mark.parametrize(
-        ("stored", "expected"),
-        [("false", False), ("0", False), ("off", False), ("true", True), ("1", True), ("on", True)],
-    )
-    def test_string_boolean_is_coerced_safely(self, stored, expected):
+    @pytest.mark.parametrize("stored", ["true", "yes", 1])
+    def test_maximized_requires_real_true(self, stored):
         repo = ConfigRepository()
-        repo.path.write_text(json.dumps({"dark_mode": stored}), encoding="utf-8")
-        assert repo.load().dark_mode is expected
+        repo.path.write_text(json.dumps({"maximized": stored}), encoding="utf-8")
+        assert repo.load().maximized is False
 
     @pytest.mark.parametrize(
         "payload",
