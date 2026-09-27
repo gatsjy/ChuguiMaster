@@ -609,7 +609,7 @@ class MainWindow(QMainWindow):
             Column.NO: 48,
             Column.AMOUNT: 116,
             Column.RELATION: 118,
-            Column.ATTENDANCE: 104,
+            Column.ATTENDANCE: 118,
             Column.ADULT_TICKETS: 54,
             Column.CHILD_TICKETS: 54,
             Column.COPY: 118,
