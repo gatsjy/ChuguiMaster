@@ -6,13 +6,20 @@ from chugui.storage.paths import (
     data_dir,
     log_file,
     migrate_legacy_files,
+    relation_map_file,
     session_file,
     templates_file,
 )
-from chugui.storage.repositories import ConfigRepository, SessionRepository, TemplateRepository
+from chugui.storage.repositories import (
+    ConfigRepository,
+    RelationMapRepository,
+    SessionRepository,
+    TemplateRepository,
+)
 
 __all__ = [
     "ConfigRepository",
+    "RelationMapRepository",
     "SessionRepository",
     "TemplateRepository",
     "config_file",
@@ -20,6 +27,7 @@ __all__ = [
     "log_file",
     "migrate_legacy_files",
     "read_json",
+    "relation_map_file",
     "session_file",
     "templates_file",
     "write_json_atomic",

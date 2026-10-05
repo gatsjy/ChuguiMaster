@@ -1,6 +1,6 @@
 # ChuguiMaster 동작 Flow
 
-> v2.2.2 기준. 이 문서는 **코드가 실제로 하는 일**을 기술한다.
+> v2.3.0 기준. 이 문서는 **코드가 실제로 하는 일**을 기술한다.
 > 기능 소개는 [README.md](README.md)를 참고.
 
 ---
@@ -17,7 +17,7 @@
                             │ 호출
 ┌───────────────────────────▼─────────────────────────────────┐
 │  services/    settlement · messages · merge · exporter      │  Qt 비의존
-│               text_export                                   │
+│               relation_map · text_export                    │
 ├─────────────────────────────────────────────────────────────┤
 │  parsing/     amount · names · relations · tickets           │  Qt 비의존
 │               columns · text_parser · excel_parser          │  순수 함수

@@ -25,6 +25,7 @@ ENV_OVERRIDE = "CHUGUI_DATA_DIR"
 CONFIG_FILENAME = "config.json"
 SESSION_FILENAME = "session.json"
 TEMPLATES_FILENAME = "templates.json"
+RELATION_MAP_FILENAME = "relation_map.json"
 LOG_FILENAME = "chugui.log"
 
 # v1이 실행 디렉터리에 남긴 파일들 -> 새 파일명 매핑
@@ -69,6 +70,10 @@ def session_file() -> Path:
 
 def templates_file() -> Path:
     return data_dir() / TEMPLATES_FILENAME
+
+
+def relation_map_file() -> Path:
+    return data_dir() / RELATION_MAP_FILENAME
 
 
 def log_file() -> Path:

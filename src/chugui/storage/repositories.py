@@ -15,9 +15,10 @@ from typing import Any
 
 from chugui.models import SCHEMA_VERSION, Guest
 from chugui.services.messages import Templates, default_templates, normalize_templates
+from chugui.services.relation_map import RelationMap
 from chugui.services.settlement import DEFAULT_ADULT_MEAL, DEFAULT_CHILD_MEAL
 from chugui.storage.atomic import read_json, write_json_atomic
-from chugui.storage.paths import config_file, session_file, templates_file
+from chugui.storage.paths import config_file, relation_map_file, session_file, templates_file
 
 logger = logging.getLogger(__name__)
 
@@ -157,3 +158,28 @@ class TemplateRepository:
         except OSError as exc:  # pragma: no cover
             logger.warning("템플릿 파일 삭제 실패: %s", exc)
         return default_templates()
+
+
+class RelationMapRepository:
+    """사용자가 가르친 소속 → 관계 사전."""
+
+    def __init__(self, path: Path | None = None) -> None:
+        self._path = path
+
+    @property
+    def path(self) -> Path:
+        return self._path or relation_map_file()
+
+    def load(self) -> RelationMap:
+        data = read_json(self.path, default=None)
+        return RelationMap(data if isinstance(data, dict) else None)
+
+    def save(self, mapping: RelationMap) -> bool:
+        return write_json_atomic(self.path, mapping.to_dict())
+
+    def clear(self) -> None:
+        for candidate in (self.path, self.path.with_suffix(self.path.suffix + ".bak")):
+            try:
+                candidate.unlink(missing_ok=True)
+            except OSError as exc:  # pragma: no cover
+                logger.warning("소속 사전 삭제 실패 (%s): %s", candidate, exc)

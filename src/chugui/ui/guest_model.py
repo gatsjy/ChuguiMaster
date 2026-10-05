@@ -93,6 +93,12 @@ class GuestTableModel(QAbstractTableModel):
 
     guestsChanged = Signal()
 
+    #: 사용자가 관계 칸을 직접 바꿨다(행 번호). 소속 사전 학습의 신호다.
+    #: ``commit_edit`` 이 아니라 사용자 진입점에서만 보낸다 —
+    #: 되돌리기도 ``commit_edit`` 을 쓰므로, 거기서 보내면 Ctrl+Z 가 오히려
+    #: 잘못된 관계를 사전에 가르치게 된다.
+    relationEdited = Signal(int)
+
     def __init__(self, message_service: MessageService, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._guests: list[Guest] = []
@@ -275,7 +281,10 @@ class GuestTableModel(QAbstractTableModel):
     def _push_or_commit(self, row: int, column: Column, old_value: Any, new_value: Any) -> bool:
         """되돌리기 스택이 있으면 명령으로, 없으면 바로 적용한다."""
         if self._undo_stack is None:
-            return self.commit_edit(row, column, new_value)
+            applied = self.commit_edit(row, column, new_value)
+            if applied:
+                self._announce_relation_edit(row, column)
+            return applied
 
         # 스택 없이 미리 한 번 시험해 볼 방법이 없으므로, 적용 실패는 명령 안에서 흡수된다.
         # 대신 명백히 거부될 값(빈 이름 등)은 여기서 걸러 빈 명령이 쌓이지 않게 한다.
@@ -285,7 +294,12 @@ class GuestTableModel(QAbstractTableModel):
 
         label = f"{HEADERS.get(column, '')} 변경"
         self._undo_stack.push(EditGuestCommand(self, row, column, old_value, new_value, label))
+        self._announce_relation_edit(row, column)
         return True
+
+    def _announce_relation_edit(self, row: int, column: Column) -> None:
+        if column is Column.RELATION:
+            self.relationEdited.emit(row)
 
     @staticmethod
     def _is_acceptable(column: Column, value: Any) -> bool:

@@ -58,12 +58,14 @@ from chugui.samples import SAMPLE_TEXT
 from chugui.services.exporter import export_to_excel
 from chugui.services.merge import merge_guests, sync_with_text
 from chugui.services.messages import MessageService
+from chugui.services.relation_map import RelationMap, guests_sharing_belong
 from chugui.services.settlement import Settlement, settle
 from chugui.services.text_export import export_text
 from chugui.storage.crash import CrashSentinel
 from chugui.storage.repositories import (
     AppConfig,
     ConfigRepository,
+    RelationMapRepository,
     SessionRepository,
     SessionState,
     TemplateRepository,
@@ -99,6 +101,10 @@ _SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000
 #: 되돌리기 토스트가 떠 있는 시간. 길면 화면을 오래 가린다는 의견을 따라 3초로 줄였다.
 #: 놓쳐도 Ctrl+Z · '이전 시점 복구' 로 되돌릴 수 있다.
 _UNDO_TOAST_MS = 3000
+#: 같은 소속이 이만큼 더 있을 때만 일괄 변경을 제안한다. 한 건뿐이면 물을 가치가 없다.
+_BULK_SUGGEST_MIN = 2
+#: 일괄 변경 제안은 읽고 판단할 시간이 필요하므로 일반 알림보다 길게 띄운다.
+_BULK_TOAST_MS = 7000
 #: 입력 미리보기 디바운스. 타이핑 중 매 글자 파싱하지 않는다.
 _PREVIEW_DEBOUNCE_MS = 300
 
@@ -127,6 +133,11 @@ class MainWindow(QMainWindow):
         self._config_repo = config_repo or ConfigRepository()
         self._session_repo = session_repo or SessionRepository()
         self._template_repo = template_repo or TemplateRepository()
+        self._relation_map_repo = RelationMapRepository()
+        #: 사용자가 가르친 소속 → 관계. 키워드 추정으로는 고유명사를 맞힐 수 없다.
+        self._relation_map: RelationMap = self._relation_map_repo.load()
+        #: 일괄 변경 중에는 줄마다 오는 relationEdited 를 무시한다.
+        self._bulk_relation_in_progress = False
         self._snapshots = SnapshotStore()
         self._sentinel = CrashSentinel()
         self._crash_report = self._sentinel.arm()
@@ -184,6 +195,7 @@ class MainWindow(QMainWindow):
         self._apply_toast_palette()
 
         self._model.guestsChanged.connect(self._on_guests_changed)
+        self._model.relationEdited.connect(self._on_relation_edited)
         self._proxy.rowsInserted.connect(self._update_empty_state)
         self._proxy.rowsRemoved.connect(self._update_empty_state)
         self._proxy.modelReset.connect(self._update_empty_state)
@@ -734,7 +746,7 @@ class MainWindow(QMainWindow):
             self._input.setFocus()
             return
 
-        guests = parse_text(text)
+        guests = self._apply_relation_map(parse_text(text))
         if not guests:
             self._toast.show_message("인식할 수 있는 내용이 없습니다.")
             return
@@ -812,6 +824,7 @@ class MainWindow(QMainWindow):
             self._replace_from_export(path, incoming)
             return
 
+        self._apply_relation_map(incoming)
         self._begin_destructive("파일 병합 전")
         result = merge_guests(self._model.guests, incoming, skip_exact_duplicates=False)
         self._model.set_guests(result.guests)
@@ -853,7 +866,7 @@ class MainWindow(QMainWindow):
     def _handle_sample(self) -> None:
         self._begin_destructive("샘플 불러오기 전")
         self._input.setPlainText(SAMPLE_TEXT)
-        guests = parse_text(SAMPLE_TEXT)
+        guests = self._apply_relation_map(parse_text(SAMPLE_TEXT))
         self._model.set_guests(guests)
         self._synced_lines = SAMPLE_TEXT.splitlines()
         self._offer_undo(f"샘플 {len(guests)}건을 불러왔습니다.")
@@ -878,6 +891,70 @@ class MainWindow(QMainWindow):
         self._synced_lines = []
         self._session_repo.clear()
         self._offer_undo("모두 지웠습니다.")
+
+    # --------------------------------------------------------- 소속 사전
+
+    def _apply_relation_map(self, guests: list[Guest]) -> list[Guest]:
+        """사용자가 가르친 소속을 새로 읽은 하객에 반영한다.
+
+        키워드 추정은 `보건소` `교회` 같은 일반명사만 안다. `현대모비스` 나
+        `일구칠구`(부모님 모임 이름)처럼 사용자만 아는 고유명사는 사전으로
+        덮어쓰는 수밖에 없다. 직접 가르친 값이므로 추정보다 우선한다.
+        """
+        if len(self._relation_map):
+            self._relation_map.apply_to(guests)
+        return guests
+
+    def _on_relation_edited(self, row: int) -> None:
+        """관계를 직접 바꿨다. 그 소속을 기억하고, 같은 소속이 더 있으면 묻는다."""
+        if self._bulk_relation_in_progress:
+            return  # 일괄 변경이 줄마다 이 신호를 다시 보낸다. 되묻지 않는다.
+
+        guest = self._model.guest_at(row)
+        if guest is None or not guest.belong:
+            return  # 소속이 없으면 배울 것이 없다. 이름으로는 배우지 않는다.
+
+        if self._relation_map.learn(guest.belong, guest.relation):
+            self._relation_map_repo.save(self._relation_map)
+
+        relation = guest.relation
+        siblings = [
+            other
+            for other in guests_sharing_belong(self._model.guests, guest.belong)
+            if other is not guest and other.relation is not relation
+        ]
+        if len(siblings) < _BULK_SUGGEST_MIN:
+            return
+
+        rows = [self._model.guests.index(other) for other in siblings]
+        self._toast.show_action(
+            f"'{guest.belong}' {len(siblings)}건도 {relation.value} 로 바꿀까요?",
+            f"{len(siblings)}건 변경",
+            lambda: self._bulk_set_relation(rows, relation),
+            _BULK_TOAST_MS,
+        )
+
+    def _bulk_set_relation(self, rows: list[int], relation: Relation) -> None:
+        """같은 소속 여러 줄의 관계를 한 번에 바꾼다.
+
+        매크로로 묶어 ``Ctrl+Z`` 한 번에 전부 되돌아가게 한다.
+        줄마다 명령을 쌓으면 사용자가 Ctrl+Z 를 수십 번 눌러야 한다.
+        """
+        if not rows:
+            return
+        self._bulk_relation_in_progress = True
+        self._undo_stack.beginMacro(f"같은 소속 {len(rows)}건 관계 변경")
+        try:
+            for row in rows:
+                self._model.setData(
+                    self._model.index(row, Column.RELATION),
+                    relation.value,
+                    Qt.ItemDataRole.EditRole,
+                )
+        finally:
+            self._undo_stack.endMacro()
+            self._bulk_relation_in_progress = False
+        self._toast.show_message(f"{len(rows)}건을 {relation.value} 로 바꿨습니다. (Ctrl+Z 로 되돌리기)")
 
     # ------------------------------------------------------------ 상호작용
 
@@ -1110,7 +1187,9 @@ class MainWindow(QMainWindow):
             )
             return
         text = self._input.toPlainText()
-        result = sync_with_text(self._model.guests, parse_text(text), self._synced_lines)
+        result = sync_with_text(
+            self._model.guests, self._apply_relation_map(parse_text(text)), self._synced_lines
+        )
         self._synced_lines = text.splitlines()
         if not result.changed:
             return
@@ -1137,7 +1216,7 @@ class MainWindow(QMainWindow):
             self._preview.hide()
             return
 
-        guests = parse_text(text)
+        guests = self._apply_relation_map(parse_text(text))
         if not guests:
             self._preview.setText("인식할 수 있는 줄이 없습니다.")
             self._preview.show()
@@ -1163,7 +1242,7 @@ class MainWindow(QMainWindow):
             self._input.setFocus()
             return
 
-        incoming = parse_text(text)
+        incoming = self._apply_relation_map(parse_text(text))
         if not incoming:
             self._toast.show_message("인식할 수 있는 내용이 없습니다.")
             return
