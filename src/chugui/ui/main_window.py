@@ -16,6 +16,7 @@ UI 원칙
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QModelIndex, QObject, Qt, QTimer
@@ -196,6 +197,7 @@ class MainWindow(QMainWindow):
 
         self._model.guestsChanged.connect(self._on_guests_changed)
         self._model.relationEdited.connect(self._on_relation_edited)
+        self._model.set_edit_hook(self._relation_learning_effects)
         self._proxy.rowsInserted.connect(self._update_empty_state)
         self._proxy.rowsRemoved.connect(self._update_empty_state)
         self._proxy.modelReset.connect(self._update_empty_state)
@@ -905,17 +907,43 @@ class MainWindow(QMainWindow):
             self._relation_map.apply_to(guests)
         return guests
 
+    def _relation_learning_effects(
+        self, row: int, column: Column, old_value: object, new_value: object
+    ) -> tuple[Callable[[], None], Callable[[], None]] | None:
+        """관계 편집에 딸린 '사전 학습' 을 되돌리기 명령에 실어 보낸다.
+
+        학습이 명령 밖에 있으면, 드롭다운을 잘못 눌러 `현대모비스 → 종교` 를 고르고
+        바로 Ctrl+Z 해도 표만 돌아가고 사전에는 종교가 남는다. 다음 명단에서
+        현대모비스 23건이 **조용히** 종교로 분류된다.
+        """
+        if column is not Column.RELATION:
+            return None
+        guest = self._model.guest_at(row)
+        if guest is None or not guest.belong:
+            return None  # 소속이 없으면 배울 것이 없다. 이름으로는 배우지 않는다.
+
+        belong = guest.belong
+        learned = Relation.coerce(new_value)
+        previous = self._relation_map.get(belong)  # 지금 값으로 고정해 둔다
+
+        def teach() -> None:
+            if self._relation_map.learn(belong, learned):
+                self._relation_map_repo.save(self._relation_map)
+
+        def untrain() -> None:
+            self._relation_map.restore(belong, previous)
+            self._relation_map_repo.save(self._relation_map)
+
+        return teach, untrain
+
     def _on_relation_edited(self, row: int) -> None:
-        """관계를 직접 바꿨다. 그 소속을 기억하고, 같은 소속이 더 있으면 묻는다."""
+        """관계를 직접 바꿨다. 같은 소속이 더 있으면 함께 바꿀지 묻는다."""
         if self._bulk_relation_in_progress:
             return  # 일괄 변경이 줄마다 이 신호를 다시 보낸다. 되묻지 않는다.
 
         guest = self._model.guest_at(row)
         if guest is None or not guest.belong:
-            return  # 소속이 없으면 배울 것이 없다. 이름으로는 배우지 않는다.
-
-        if self._relation_map.learn(guest.belong, guest.relation):
-            self._relation_map_repo.save(self._relation_map)
+            return
 
         relation = guest.relation
         siblings = [
@@ -926,20 +954,30 @@ class MainWindow(QMainWindow):
         if len(siblings) < _BULK_SUGGEST_MIN:
             return
 
-        rows = [self._model.guests.index(other) for other in siblings]
+        # 행 번호가 아니라 하객 객체를 잡아 둔다. 알림이 떠 있는 몇 초 사이에
+        # 줄을 지우거나 Enter 로 표가 갱신되면 행 번호는 다른 사람을 가리킨다.
         self._toast.show_action(
             f"'{guest.belong}' {len(siblings)}건도 {relation.value} 로 바꿀까요?",
             f"{len(siblings)}건 변경",
-            lambda: self._bulk_set_relation(rows, relation),
+            lambda: self._bulk_set_relation(siblings, relation),
             _BULK_TOAST_MS,
         )
 
-    def _bulk_set_relation(self, rows: list[int], relation: Relation) -> None:
+    def _bulk_set_relation(self, targets: list[Guest], relation: Relation) -> None:
         """같은 소속 여러 줄의 관계를 한 번에 바꾼다.
 
         매크로로 묶어 ``Ctrl+Z`` 한 번에 전부 되돌아가게 한다.
         줄마다 명령을 쌓으면 사용자가 Ctrl+Z 를 수십 번 눌러야 한다.
+
+        행 번호는 **누른 순간** 다시 찾는다. 그 사이 지워진 줄은 건너뛰고,
+        사용자가 이미 손으로 고친 줄도 건너뛴다.
         """
+        wanted = {id(guest) for guest in targets}
+        rows = [
+            row
+            for row, guest in enumerate(self._model.guests)
+            if id(guest) in wanted and guest.relation is not relation
+        ]
         if not rows:
             return
         self._bulk_relation_in_progress = True

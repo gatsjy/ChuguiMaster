@@ -10,6 +10,7 @@ Qt의 ``QUndoStack`` 에 얹으면 ``Ctrl+Z`` / ``Ctrl+Y`` 가 공짜로 따라�
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from PySide6.QtGui import QUndoCommand
@@ -18,9 +19,17 @@ if TYPE_CHECKING:  # pragma: no cover - 순환 참조 회피
     from chugui.models import Guest
     from chugui.ui.guest_model import Column, GuestTableModel
 
+#: 편집에 딸린 부수 효과. (다시 할 때, 되돌릴 때) 순서다.
+SideEffects = tuple[Callable[[], None], Callable[[], None]]
+
 
 class EditGuestCommand(QUndoCommand):
-    """셀 하나의 값 변경."""
+    """셀 하나의 값 변경.
+
+    ``side_effects`` 는 셀 값 말고도 함께 되돌려야 하는 것을 담는다.
+    관계를 바꾸면 소속 사전이 그 값을 배우는데, 학습이 명령 밖에 있으면
+    Ctrl+Z 로 표만 돌아가고 사전에는 오클릭한 값이 남는다.
+    """
 
     def __init__(
         self,
@@ -30,6 +39,7 @@ class EditGuestCommand(QUndoCommand):
         old_value: Any,
         new_value: Any,
         label: str,
+        side_effects: SideEffects | None = None,
     ) -> None:
         super().__init__(label)
         self._model = model
@@ -37,12 +47,15 @@ class EditGuestCommand(QUndoCommand):
         self._column = column
         self._old_value = old_value
         self._new_value = new_value
+        self._side_effects = side_effects
 
     def redo(self) -> None:  # QUndoStack.push 가 최초 1회 호출한다
-        self._model.commit_edit(self._row, self._column, self._new_value)
+        if self._model.commit_edit(self._row, self._column, self._new_value) and self._side_effects:
+            self._side_effects[0]()
 
     def undo(self) -> None:
-        self._model.commit_edit(self._row, self._column, self._old_value)
+        if self._model.commit_edit(self._row, self._column, self._old_value) and self._side_effects:
+            self._side_effects[1]()
 
 
 class RemoveGuestsCommand(QUndoCommand):

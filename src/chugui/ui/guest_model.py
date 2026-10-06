@@ -12,7 +12,7 @@ Model/View로 바꾸면 두 문제가 동시에 사라진다. 필터링은 프�
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from enum import IntEnum
 from typing import Any
 
@@ -29,7 +29,10 @@ from chugui.models import (
     renumber,
 )
 from chugui.services.messages import MessageService
-from chugui.ui.commands import EditGuestCommand, RemoveGuestsCommand
+from chugui.ui.commands import EditGuestCommand, RemoveGuestsCommand, SideEffects
+
+#: (행, 열, 옛 값, 새 값) → 편집에 딸린 부수 효과. 없으면 ``None``.
+EditHook = Callable[[int, "Column", Any, Any], SideEffects | None]
 
 # 델리게이트가 셀에 담긴 Guest를 직접 꺼내 쓰기 위한 사용자 역할.
 GUEST_ROLE = int(Qt.ItemDataRole.UserRole) + 1
@@ -105,6 +108,14 @@ class GuestTableModel(QAbstractTableModel):
         self._messages = message_service
         self._review_brush: QBrush | None = None
         self._undo_stack: QUndoStack | None = None
+        self._edit_hook: EditHook | None = None
+
+    def set_edit_hook(self, hook: EditHook | None) -> None:
+        """사용자 편집에 부수 효과를 붙인다. 효과는 되돌리기 명령과 함께 움직인다.
+
+        모델은 소속 사전을 모른다. 창이 '관계를 바꾸면 사전도 고쳐라' 를 꽂아 준다.
+        """
+        self._edit_hook = hook
 
     def set_review_color(self, color: QColor | None) -> None:
         """확인이 필요한 행에 깔 배경색. 테마가 바뀌면 창이 다시 알려준다.
@@ -283,6 +294,9 @@ class GuestTableModel(QAbstractTableModel):
         if self._undo_stack is None:
             applied = self.commit_edit(row, column, new_value)
             if applied:
+                effects = self._side_effects_for(row, column, old_value, new_value)
+                if effects:
+                    effects[0]()
                 self._announce_relation_edit(row, column)
             return applied
 
@@ -293,9 +307,21 @@ class GuestTableModel(QAbstractTableModel):
             return False
 
         label = f"{HEADERS.get(column, '')} 변경"
-        self._undo_stack.push(EditGuestCommand(self, row, column, old_value, new_value, label))
+        effects = self._side_effects_for(row, column, old_value, new_value)
+        self._undo_stack.push(
+            EditGuestCommand(self, row, column, old_value, new_value, label, effects)
+        )
         self._announce_relation_edit(row, column)
         return True
+
+    def _side_effects_for(
+        self, row: int, column: Column, old_value: Any, new_value: Any
+    ) -> SideEffects | None:
+        # 부수 효과는 명령을 만드는 이 순간의 상태로 고정한다(예: 사전의 직전 값).
+        # 되돌릴 때 '지금' 상태를 다시 읽으면 그 사이 바뀐 값으로 되돌리게 된다.
+        if self._edit_hook is None:
+            return None
+        return self._edit_hook(row, column, old_value, new_value)
 
     def _announce_relation_edit(self, row: int, column: Column) -> None:
         if column is Column.RELATION:

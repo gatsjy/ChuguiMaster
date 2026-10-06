@@ -69,6 +69,16 @@ class RelationMap:
     def forget(self, belong: str) -> None:
         self._map.pop(normalize_belong(belong), None)
 
+    def restore(self, belong: str, previous: Relation | None) -> None:
+        """학습 이전 상태로 되돌린다. 되돌리기(Ctrl+Z)가 쓴다.
+
+        이전에 몰랐던 소속이면 잊고, 알던 소속이면 그 값으로 돌린다.
+        """
+        if previous is None:
+            self.forget(belong)
+        else:
+            self.learn(belong, previous)
+
     def to_dict(self) -> dict[str, str]:
         return {key: relation.value for key, relation in sorted(self._map.items())}
 

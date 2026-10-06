@@ -319,11 +319,107 @@ class TestWindowIntegration:
         qt_app.processEvents()
         assert window._model.guests[0].relation is Relation.FAMILY
 
-    def test_undo_does_not_teach_the_wrong_relation(self, window, qt_app):
-        """Ctrl+Z 는 commit_edit 을 쓴다. 거기서 학습하면 되돌린 값을 가르친다."""
+    # ------------------------------------------------- 되돌리기와 학습
+
+    def test_undo_forgets_a_belong_that_was_unknown(self, window, qt_app):
+        """오클릭 → Ctrl+Z 했는데 사전에 남으면, 다음 명단 23건이 조용히 틀린다."""
         window._model.set_guests(parse_text("남천석\t100,000\t현대모비스"))
-        self._set_relation(window, 0, Relation.WORK)
+        self._set_relation(window, 0, Relation.FAITH)  # 드롭다운 오클릭
         qt_app.processEvents()
+        assert window._relation_map.get("현대모비스") is Relation.FAITH
+
+        window._undo_stack.undo()
+        qt_app.processEvents()
+        assert window._model.guests[0].relation is Relation.OTHER
+        assert window._relation_map.get("현대모비스") is None
+
+    def test_undo_restores_the_previously_learned_value(self, window, qt_app):
+        """이미 알던 소속이면 잊는 게 아니라 그 값으로 돌아가야 한다."""
+        window._relation_map.learn("현대모비스", Relation.WORK)
+        window._model.set_guests(parse_text("남천석\t100,000\t현대모비스"))
+        self._set_relation(window, 0, Relation.FAITH)
+        qt_app.processEvents()
+
         window._undo_stack.undo()
         qt_app.processEvents()
         assert window._relation_map.get("현대모비스") is Relation.WORK
+
+    def test_undo_is_persisted(self, window, qt_app):
+        """되돌린 사전이 디스크에도 반영돼야 재시작 후 다시 틀리지 않는다."""
+        window._model.set_guests(parse_text("남천석\t100,000\t현대모비스"))
+        self._set_relation(window, 0, Relation.FAITH)
+        window._undo_stack.undo()
+        qt_app.processEvents()
+        assert RelationMapRepository().load().get("현대모비스") is None
+
+    def test_redo_teaches_again(self, window, qt_app):
+        window._model.set_guests(parse_text("남천석\t100,000\t현대모비스"))
+        self._set_relation(window, 0, Relation.WORK)
+        window._undo_stack.undo()
+        window._undo_stack.redo()
+        qt_app.processEvents()
+        assert window._relation_map.get("현대모비스") is Relation.WORK
+
+    def test_undoing_bulk_then_first_edit_unwinds_fully(self, window, qt_app):
+        window._model.set_guests(
+            parse_text(
+                "조문행\t100,000\t일구칠구\n"
+                "이면구\t100,000\t일구칠구\n"
+                "김한기\t50,000\t일구칠구"
+            )
+        )
+        self._set_relation(window, 0, Relation.FAMILY)
+        qt_app.processEvents()
+        window._toast._action.click()
+        qt_app.processEvents()
+
+        window._undo_stack.undo()  # 일괄 변경
+        assert window._relation_map.get("일구칠구") is Relation.FAMILY  # 첫 편집은 아직 살아 있다
+        window._undo_stack.undo()  # 첫 편집
+        qt_app.processEvents()
+        assert all(g.relation is Relation.OTHER for g in window._model.guests)
+        assert window._relation_map.get("일구칠구") is None
+
+    # ------------------------------------------- 알림이 떠 있는 사이 표가 바뀜
+
+    def test_bulk_change_survives_row_deletion(self, window, qt_app):
+        """알림이 떠 있는 몇 초 사이 줄을 지우면 행 번호가 다른 사람을 가리킨다."""
+        window._model.set_guests(
+            parse_text(
+                "김가나\t100,000\t현대모비스\n"
+                "김다라\t100,000\t현대모비스\n"
+                "김마바\t100,000\t현대모비스\n"
+                "김사아\t100,000\t다른곳"
+            )
+        )
+        self._set_relation(window, 0, Relation.WORK)
+        qt_app.processEvents()
+        window._model.remove_rows([1])  # 김다라 삭제 → 아래 줄이 한 칸씩 올라온다
+        qt_app.processEvents()
+        window._toast._action.click()
+        qt_app.processEvents()
+
+        by_name = {g.name: g for g in window._model.guests}
+        assert by_name["김마바"].relation is Relation.WORK
+        assert by_name["김사아"].relation is Relation.OTHER  # 다른 소속은 그대로
+
+    def test_bulk_change_skips_rows_already_fixed_by_hand(self, window, qt_app):
+        """사용자가 그 사이 손으로 고친 줄은 다시 건드리지 않는다(빈 되돌리기 항목도 없음)."""
+        window._model.set_guests(
+            parse_text(
+                "조문행\t100,000\t일구칠구\n"
+                "이면구\t100,000\t일구칠구\n"
+                "김한기\t50,000\t일구칠구"
+            )
+        )
+        self._set_relation(window, 0, Relation.FAMILY)
+        qt_app.processEvents()
+        window._bulk_relation_in_progress = True  # 이 편집으로 새 알림이 뜨지 않게
+        self._set_relation(window, 1, Relation.FAMILY)
+        window._bulk_relation_in_progress = False
+        before = window._undo_stack.count()
+
+        window._toast._action.click()
+        qt_app.processEvents()
+        assert window._undo_stack.count() == before + 1  # 남은 1건만 담은 매크로 하나
+        assert all(g.relation is Relation.FAMILY for g in window._model.guests)
