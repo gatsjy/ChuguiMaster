@@ -335,7 +335,6 @@ class MainWindow(QMainWindow):
         self._spin_adult.setToolTip("성인 1인 식대")
         self._spin_adult.setAccessibleName("대인 식대 단가")
         self._spin_adult.valueChanged.connect(self._on_meal_cost_changed)
-        self._spin_adult.editingFinished.connect(self._on_meal_cost_changed)
 
         self._spin_child = QSpinBox()
         self._spin_child.setRange(0, 300_000)
@@ -347,7 +346,6 @@ class MainWindow(QMainWindow):
         self._spin_child.setToolTip("어린이 1인 식대")
         self._spin_child.setAccessibleName("소인 식대 단가")
         self._spin_child.valueChanged.connect(self._on_meal_cost_changed)
-        self._spin_child.editingFinished.connect(self._on_meal_cost_changed)
 
         self._spin_adult.setMinimumWidth(170)
         self._spin_child.setMinimumWidth(170)
@@ -645,9 +643,10 @@ class MainWindow(QMainWindow):
         undo_action.setShortcut(QKeySequence.StandardKey.Undo)
         redo_action = self._undo_stack.createRedoAction(self, "다시 실행")
         redo_action.setShortcut(QKeySequence.StandardKey.Redo)
-        for action in (undo_action, redo_action):
-            action.triggered.connect(self._announce_undo_state)
-            self.addAction(action)
+        undo_action.triggered.connect(self._announce_undo_state)
+        redo_action.triggered.connect(self._announce_redo_state)
+        self.addAction(undo_action)
+        self.addAction(redo_action)
 
         for shortcut, slot, name in (
             (QKeySequence("Ctrl+Return"), self._handle_parse, "파싱"),
@@ -1190,6 +1189,10 @@ class MainWindow(QMainWindow):
     def _announce_undo_state(self) -> None:
         """되돌리기 결과를 사용자에게 알린다. 조용히 값만 바뀌면 알아채기 어렵다."""
         self.statusBar().showMessage("편집을 되돌렸습니다.  (Ctrl+Y 로 다시 실행)", 4000)
+
+    def _announce_redo_state(self) -> None:
+        """다시 실행 결과를 사용자에게 알린다."""
+        self.statusBar().showMessage("편집을 다시 실행했습니다.  (Ctrl+Z 로 되돌리기)", 4000)
 
     def _on_input_changed(self) -> None:
         self._schedule_autosave()

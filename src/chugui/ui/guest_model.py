@@ -286,7 +286,38 @@ class GuestTableModel(QAbstractTableModel):
         if role != Qt.ItemDataRole.EditRole or column not in _EDITABLE:
             return False
 
-        old_value = self._edit_value(guest, column)
+        # 동일 값 편집 시 불필요한 Undo 커맨드 및 학습 방지
+        if column is Column.NAME:
+            clean_name = str(value or "").strip()
+            if not clean_name:
+                return False
+            if clean_name == guest.name:
+                return True
+        if column is Column.AMOUNT:
+            from chugui.parsing.amount import parse_amount
+            if parse_amount(value) == guest.amount:
+                return True
+        if column is Column.RELATION and Relation.coerce(value) == guest.relation:
+            return True
+        if column is Column.ATTENDANCE and Attendance.coerce(value) == guest.attendance:
+            return True
+        if column is Column.ADULT_TICKETS:
+            try:
+                if int(value) == guest.adult_tickets:
+                    return True
+            except (TypeError, ValueError):
+                pass
+        if column is Column.CHILD_TICKETS:
+            try:
+                if int(value) == guest.child_tickets:
+                    return True
+            except (TypeError, ValueError):
+                pass
+
+        if column is Column.ATTENDANCE:
+            old_value = (guest.attendance, guest.adult_tickets, guest.child_tickets, guest.payment)
+        else:
+            old_value = self._edit_value(guest, column)
         return self._push_or_commit(index.row(), column, old_value, value)
 
     def _push_or_commit(self, row: int, column: Column, old_value: Any, new_value: Any) -> bool:
@@ -362,8 +393,11 @@ class GuestTableModel(QAbstractTableModel):
     def _apply_edit(self, guest: Guest, column: Column, value: Any) -> bool:
         if column is Column.NAME:
             name = str(value or "").strip()
-            if not name:
-                return False
+            if not name or name == "이름 미상":
+                guest.name = "이름 미상"
+                guest.names = []
+                guest.add_warning(WARN_NO_NAME)
+                return True
             guest.name = name
             guest.names = [part.strip() for part in name.replace("&", ",").split(",") if part.strip()]
             guest.clear_warning(WARN_NO_NAME)
@@ -387,6 +421,13 @@ class GuestTableModel(QAbstractTableModel):
             return True
 
         if column is Column.ATTENDANCE:
+            if isinstance(value, tuple) and len(value) == 4:
+                att, adult, child, pay = value
+                guest.attendance = Attendance.coerce(att)
+                guest.adult_tickets = adult
+                guest.child_tickets = child
+                guest.payment = Payment.coerce(pay)
+                return True
             attendance = Attendance.coerce(value)
             if attendance is guest.attendance:
                 return True

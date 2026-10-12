@@ -76,6 +76,27 @@ class TestOtherColumns:
         assert model.guests[0].attendance is Attendance.PRESENT
         assert model.guests[0].adult_tickets == before
 
+    def test_attendance_undo_restores_child_tickets_and_payment(self, model):
+        """대인/소인 식권과 현금 결제수단까지 완벽하게 원복되어야 한다."""
+        from chugui.models import Payment
+
+        guest = model.guests[0]
+        guest.adult_tickets = 2
+        guest.child_tickets = 3
+        guest.payment = Payment.CASH
+
+        model.setData(model.index(0, Column.ATTENDANCE), Attendance.ABSENT.value)
+        assert guest.attendance is Attendance.ABSENT
+        assert guest.adult_tickets == 0
+        assert guest.child_tickets == 0
+        assert guest.payment is Payment.TRANSFER
+
+        stack_of(model).undo()
+        assert guest.attendance is Attendance.PRESENT
+        assert guest.adult_tickets == 2
+        assert guest.child_tickets == 3
+        assert guest.payment is Payment.CASH
+
     def test_ticket_undo(self, model):
         model.setData(model.index(0, Column.ADULT_TICKETS), 7)
         stack_of(model).undo()
@@ -94,6 +115,30 @@ class TestStackHygiene:
         """빈 이름처럼 거부되는 편집은 이력에 쌓이지 않는다."""
         assert model.setData(model.index(0, Column.NAME), "   ") is False
         assert stack_of(model).count() == 0
+
+    def test_same_value_does_not_grow_stack(self, model):
+        """기존 값과 동일한 편집은 스택에 쌓이지 않는다."""
+        assert model.setData(model.index(0, Column.NAME), "홍길동") is True
+        assert stack_of(model).count() == 0
+        assert model.setData(model.index(0, Column.RELATION), Relation.FAMILY.value) is True
+        assert stack_of(model).count() == 0
+        assert model.setData(model.index(0, Column.ATTENDANCE), Attendance.PRESENT.value) is True
+        assert stack_of(model).count() == 0
+
+    def test_undo_can_restore_unrecognized_name(self, model):
+        """원래 미인식 이름이었던 행의 이름을 수정했다가 Undo하면 복원된다."""
+        from chugui.models import WARN_NO_NAME, Guest
+        guest = Guest(name="이름 미상", warnings=[WARN_NO_NAME])
+        model.set_guests([guest])
+        assert model.guests[0].name == "이름 미상"
+
+        model.setData(model.index(0, Column.NAME), "새이름")
+        assert model.guests[0].name == "새이름"
+        assert WARN_NO_NAME not in model.guests[0].warnings
+
+        stack_of(model).undo()
+        assert model.guests[0].name == "이름 미상"
+        assert WARN_NO_NAME in model.guests[0].warnings
 
     def test_no_op_check_does_not_grow_stack(self, model):
         index = model.index(0, Column.SENT)

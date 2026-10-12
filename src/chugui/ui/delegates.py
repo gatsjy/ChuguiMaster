@@ -276,6 +276,8 @@ class CopyButtonDelegate(_PaletteAware, QStyledItemDelegate):
         self, event: QEvent, model, option: QStyleOptionViewItem, index: QModelIndex
     ) -> bool:
         if event.type() == QEvent.Type.MouseButtonRelease:
+            if hasattr(event, "button") and event.button() != Qt.MouseButton.LeftButton:
+                return False
             position: QPoint = event.position().toPoint() if hasattr(event, "position") else event.pos()
             if self._button_rect(option.rect).contains(position):
                 self.clicked.emit(QModelIndex(index))
