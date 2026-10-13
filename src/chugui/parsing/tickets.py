@@ -38,32 +38,71 @@ _BOUNDARY = r"(?:(?<![가-힣])|(?<=[만천억원장명]))"
 #: 키워드와 숫자 사이 구분자. 탭과 줄바꿈은 열 경계로 보고 제외한다.
 _SEP = r"[  　]*[:=]?[  　]*"
 
-#: 식권 수는 1~2자리. 뒤에 숫자나 콤마가 이어지면 더 긴 수의 일부이므로 거부한다.
-_COUNT = r"(\d{1,2})(?![\d,])"
+#: 식권 수는 1~2자리. 뒤에 숫자나 콤마+숫자(금액 천단위)가 이어지면 더 긴 수의 일부이므로 거부한다.
+_COUNT = r"(\d{1,2})(?!\d|,\d)"
 
-_ADULT_WORDS = r"(?:식권|식대|대인|성인)"
-_CHILD_WORDS = r"(?:소인|어린이|아동|아이)"
+_EXPLICIT_ADULT_WORDS = r"(?:대인|성인|어른|대)"
+_GENERIC_TICKET_WORDS = r"(?:식권|식대)"
+_CHILD_WORDS = r"(?:소인|어린이|아동|아이|유아|애기|자녀|애|소)"
 _SUFFIX = r"\s*(?:명|장|개)?"
 
-ADULT_TICKET_RE = re.compile(_BOUNDARY + _ADULT_WORDS + _SEP + _COUNT + _SUFFIX)
+ADULT_TICKET_RE = re.compile(
+    _BOUNDARY + r"(?:" + _EXPLICIT_ADULT_WORDS + r"|" + _GENERIC_TICKET_WORDS + r")" + _SEP + _COUNT + _SUFFIX
+)
+EXPLICIT_ADULT_RE = re.compile(_BOUNDARY + _EXPLICIT_ADULT_WORDS + _SEP + _COUNT + _SUFFIX)
+GENERIC_TICKET_RE = re.compile(_BOUNDARY + _GENERIC_TICKET_WORDS + _SEP + _COUNT + _SUFFIX)
 CHILD_TICKET_RE = re.compile(_BOUNDARY + _CHILD_WORDS + _SEP + _COUNT + _SUFFIX)
 
 #: 금액 파서가 제거할 식권 표기 전체.
 ANY_TICKET_RE = re.compile(
-    _BOUNDARY + r"(?:" + _ADULT_WORDS + r"|" + _CHILD_WORDS + r")" + _SEP + _COUNT + _SUFFIX
+    _BOUNDARY
+    + r"(?:"
+    + _EXPLICIT_ADULT_WORDS
+    + r"|"
+    + _GENERIC_TICKET_WORDS
+    + r"|"
+    + _CHILD_WORDS
+    + r")"
+    + _SEP
+    + _COUNT
+    + _SUFFIX
 )
+
+
+def parse_ticket_counts(text: str) -> tuple[int | None, int | None]:
+    """텍스트에서 (대인 식권 수, 소인 식권 수)를 추출한다."""
+    cleaned = str(text or "")
+    explicit_adult_m = EXPLICIT_ADULT_RE.search(cleaned)
+    generic_m = GENERIC_TICKET_RE.search(cleaned)
+    child_m = CHILD_TICKET_RE.search(cleaned)
+
+    child = int(child_m.group(1)) if child_m else None
+
+    if explicit_adult_m:
+        adult = int(explicit_adult_m.group(1))
+    elif generic_m:
+        generic_count = int(generic_m.group(1))
+        # 식권 3장(소인 1장) 또는 총식권 3 소인 1 처럼 총합과 소인이 함께 표기된 경우 대인 자동 차감
+        if ("총" in cleaned or "(" in cleaned or "（" in cleaned) and child and generic_count > child:
+            adult = generic_count - child
+        else:
+            adult = generic_count
+    else:
+        adult = None
+
+    return adult, child
 
 
 def adult_tickets(text: str) -> int | None:
     """명시된 대인 식권 수. 표기가 없으면 ``None``."""
-    match = ADULT_TICKET_RE.search(str(text or ""))
-    return int(match.group(1)) if match else None
+    adult, _ = parse_ticket_counts(text)
+    return adult
 
 
 def child_tickets(text: str) -> int | None:
     """명시된 소인 식권 수. 표기가 없으면 ``None``."""
-    match = CHILD_TICKET_RE.search(str(text or ""))
-    return int(match.group(1)) if match else None
+    _, child = parse_ticket_counts(text)
+    return child
 
 
 def strip_ticket_tokens(text: str) -> str:

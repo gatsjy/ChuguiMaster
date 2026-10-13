@@ -89,8 +89,26 @@ class TestRealTicketNotationStillWorks:
         guest = parse_line("김선배 500,000 회사 선배 식권2 소인1")
         assert (guest.amount, guest.adult_tickets, guest.child_tickets) == (500_000, 2, 1)
 
+    @pytest.mark.parametrize(
+        ("text", "expected_adult", "expected_child"),
+        [
+            ("김친구 10만 대1 소1", 1, 1),
+            ("이동료 20만 어른2 아이1", 2, 1),
+            ("박선배 15만 대2, 소1", 2, 1),
+            ("정과장 10만 성인1 유아1", 1, 1),
+            ("강부장 20만 식권3(소1)", 2, 1),
+            ("조팀장 20만 식권 3장 (소인 1장)", 2, 1),
+            ("최가족 30만 대2소1", 2, 1),
+        ],
+    )
+    def test_colloquial_ticket_notations(self, text, expected_adult, expected_child):
+        guest = parse_line(text)
+        assert (guest.adult_tickets, guest.child_tickets) == (expected_adult, expected_child)
+
     def test_amount_is_not_eaten_by_ticket_strip(self):
         assert extract_amount("최동료 10만 식권2 소인1")[0] == 100_000
+        assert extract_amount("김친구 10만 대1 소1")[0] == 100_000
+        assert extract_amount("이동료 20만 어른2 아이1")[0] == 200_000
 
     def test_strip_removes_ticket_tokens(self):
         assert "식권" not in strip_ticket_tokens("최동료 10만 식권2")

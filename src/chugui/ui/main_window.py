@@ -76,7 +76,9 @@ from chugui.ui.delegates import (
     AttendanceDelegate,
     CopyButtonDelegate,
     RelationBadgeDelegate,
+    SentBadgeDelegate,
     TicketSpinDelegate,
+    TicketStepperDelegate,
     install_hover_tracking,
 )
 from chugui.ui.dialogs import (
@@ -263,7 +265,7 @@ class MainWindow(QMainWindow):
         btn_restore.clicked.connect(self._open_restore_dialog)
         self._btn_restore = btn_restore
 
-        btn_help = QPushButton("입력 가이드")
+        btn_help = QPushButton("💡 입력 가이드")
         btn_help.setObjectName("ghost")
         btn_help.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_help.setToolTip("어떤 형식으로 적으면 되는지 안내합니다.")
@@ -273,10 +275,10 @@ class MainWindow(QMainWindow):
         layout.addWidget(title)
         layout.addWidget(version)
         layout.addStretch()
+        layout.addWidget(btn_help)
         layout.addWidget(self._btn_fullscreen)
         layout.addWidget(btn_restore)
         layout.addWidget(btn_templates)
-        layout.addWidget(btn_help)
         return layout
 
     def _build_kpi_row(self) -> QHBoxLayout:
@@ -398,8 +400,18 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(Space.MD, Space.MD, Space.MD, Space.MD)
         layout.setSpacing(Space.SM)
 
+        header_row = QHBoxLayout()
         heading = QLabel("1. 명단 입력")
         heading.setObjectName("sectionTitle")
+        header_row.addWidget(heading)
+        header_row.addStretch()
+        btn_quick_help = QPushButton("💡 입력 가이드")
+        btn_quick_help.setObjectName("ghost")
+        btn_quick_help.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_quick_help.setToolTip("어떤 형식으로 적으면 되는지 예시와 함께 확인합니다.")
+        btn_quick_help.clicked.connect(self._open_help)
+        header_row.addWidget(btn_quick_help)
+        layout.addLayout(header_row)
 
         hint_box = QFrame()
         hint_box.setObjectName("hintBox")
@@ -408,7 +420,7 @@ class MainWindow(QMainWindow):
         hint_layout.setSpacing(1)
         for line in (
             "홍길동 10만원 친척      김가족,김친지 30만 이모",
-            "최동료 10만 식권2 소인1      박지성 5만원 불참",
+            "최동료 10만 대2 소1 (또는 식권2 소인1, 어른2 아이1)      박지성 5만원 불참",
             "엑셀(.xlsx) · CSV 를 끌어다 놓으면 기존 목록에 합쳐집니다.",
         ):
             label = QLabel(line)
@@ -605,13 +617,20 @@ class MainWindow(QMainWindow):
         self._relation_delegate = RelationBadgeDelegate(palette, table)
         self._copy_delegate = CopyButtonDelegate(palette, table)
         self._copy_delegate.clicked.connect(self._on_copy_clicked)
+        self._sent_delegate = SentBadgeDelegate(palette, table)
+        self._adult_ticket_delegate = TicketStepperDelegate(palette, table)
+        self._child_ticket_delegate = TicketStepperDelegate(palette, table)
 
         table.setItemDelegateForColumn(Column.RELATION, self._relation_delegate)
         table.setItemDelegateForColumn(Column.ATTENDANCE, AttendanceDelegate(table))
-        table.setItemDelegateForColumn(Column.ADULT_TICKETS, TicketSpinDelegate(table))
-        table.setItemDelegateForColumn(Column.CHILD_TICKETS, TicketSpinDelegate(table))
+        table.setItemDelegateForColumn(Column.ADULT_TICKETS, self._adult_ticket_delegate)
+        table.setItemDelegateForColumn(Column.CHILD_TICKETS, self._child_ticket_delegate)
         table.setItemDelegateForColumn(Column.COPY, self._copy_delegate)
+        table.setItemDelegateForColumn(Column.SENT, self._sent_delegate)
         install_hover_tracking(table, self._copy_delegate, int(Column.COPY))
+        install_hover_tracking(table, self._sent_delegate, int(Column.SENT))
+        install_hover_tracking(table, self._adult_ticket_delegate, int(Column.ADULT_TICKETS))
+        install_hover_tracking(table, self._child_ticket_delegate, int(Column.CHILD_TICKETS))
 
         header = table.horizontalHeader()
         header.setStretchLastSection(True)
@@ -622,10 +641,10 @@ class MainWindow(QMainWindow):
             Column.AMOUNT: 116,
             Column.RELATION: 118,
             Column.ATTENDANCE: 118,
-            Column.ADULT_TICKETS: 54,
-            Column.CHILD_TICKETS: 54,
-            Column.COPY: 118,
-            Column.SENT: 58,
+            Column.ADULT_TICKETS: 68,
+            Column.CHILD_TICKETS: 68,
+            Column.COPY: 106,
+            Column.SENT: 74,
         }
         for column in Column:
             if column in fixed_widths:
@@ -680,6 +699,12 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_relation_delegate"):
             self._relation_delegate.set_palette(palette)
             self._copy_delegate.set_palette(palette)
+            if hasattr(self, "_sent_delegate"):
+                self._sent_delegate.set_palette(palette)
+            if hasattr(self, "_adult_ticket_delegate"):
+                self._adult_ticket_delegate.set_palette(palette)
+            if hasattr(self, "_child_ticket_delegate"):
+                self._child_ticket_delegate.set_palette(palette)
             review_color = QColor(palette.warning_surface)
             review_color.setAlpha(150)
             self._model.set_review_color(review_color)
@@ -1030,6 +1055,17 @@ class MainWindow(QMainWindow):
         copy_action = menu.addAction("인사말 복사")
         copy_action.setEnabled(len(rows) == 1)
         menu.addSeparator()
+
+        ticket_menu = menu.addMenu("식권 빠른 설정")
+        act_adult_1 = ticket_menu.addAction("대인 1장")
+        act_adult_2 = ticket_menu.addAction("대인 2장")
+        act_adult_1_child_1 = ticket_menu.addAction("대인 1장 + 소인 1장")
+        act_adult_2_child_1 = ticket_menu.addAction("대인 2장 + 소인 1장")
+        ticket_menu.addSeparator()
+        act_child_plus = ticket_menu.addAction("소인 +1장 추가")
+        act_zero = ticket_menu.addAction("식권 없음 (0장)")
+
+        menu.addSeparator()
         delete_action = menu.addAction(f"{len(rows)}줄 삭제" if len(rows) > 1 else "줄 삭제")
         delete_action.setShortcut(QKeySequence(QKeySequence.StandardKey.Delete))
         chosen = menu.exec(self._table.viewport().mapToGlobal(position))
@@ -1037,6 +1073,41 @@ class MainWindow(QMainWindow):
             self._delete_rows(rows)
         elif chosen is copy_action:
             self._on_copy_clicked(self._proxy.mapFromSource(self._model.index(rows[0], Column.COPY)))
+        elif chosen is act_adult_1:
+            self._set_tickets_bulk(rows, adult=1, child=0)
+        elif chosen is act_adult_2:
+            self._set_tickets_bulk(rows, adult=2, child=0)
+        elif chosen is act_adult_1_child_1:
+            self._set_tickets_bulk(rows, adult=1, child=1)
+        elif chosen is act_adult_2_child_1:
+            self._set_tickets_bulk(rows, adult=2, child=1)
+        elif chosen is act_child_plus:
+            self._add_child_ticket_bulk(rows)
+        elif chosen is act_zero:
+            self._set_tickets_bulk(rows, adult=0, child=0)
+
+    def _set_tickets_bulk(self, rows: list[int], adult: int, child: int) -> None:
+        self._undo_stack.beginMacro("식권 일괄 변경")
+        try:
+            for row in rows:
+                self._model.setData(self._model.index(row, Column.ADULT_TICKETS), adult)
+                self._model.setData(self._model.index(row, Column.CHILD_TICKETS), child)
+        finally:
+            self._undo_stack.endMacro()
+        self._toast.show_message(f"{len(rows)}건의 식권을 대인 {adult}장, 소인 {child}장으로 변경했습니다.")
+
+    def _add_child_ticket_bulk(self, rows: list[int]) -> None:
+        self._undo_stack.beginMacro("소인 식권 추가")
+        try:
+            for row in rows:
+                guest = self._model.guest_at(row)
+                if guest is not None:
+                    self._model.setData(
+                        self._model.index(row, Column.CHILD_TICKETS), guest.child_tickets + 1
+                    )
+        finally:
+            self._undo_stack.endMacro()
+        self._toast.show_message(f"{len(rows)}건에 소인 식권 1장을 추가했습니다.")
 
     def _delete_selected_rows(self) -> None:
         rows = self._selected_source_rows()

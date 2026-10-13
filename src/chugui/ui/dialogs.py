@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QDialog,
     QDialogButtonBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -145,84 +146,99 @@ class TemplateSettingsDialog(QDialog):
 
 _GUIDE_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
-        "기본 입력 양식",
+        "🌟 가장 쉬운 3대 기본 공식 (이것만 쓰셔도 충분합니다)",
         (
-            "이름 금액 소속  →  홍길동 10만원 친척",
-            "이름1,이름2 금액  →  김가족,김친지 30만 이모",
-            "이름 금액 식권N 소인N  →  최동료 10만 식권2 소인1",
-            "이름 금액 불참  →  박지성 5만원 불참",
+            "👤 일반 참석:  '홍길동 10만원 친척'  →  [성명: 홍길동] [금액: 100,000원] [관계: 친척] (대인 식권 1장 자동 발급)",
+            "🍽️ 식권 여러 장:  '최동료 10만 대2 소1'  (또는 '식권2 소인1', '어른2 아이1')  →  [대인 2장, 소인 1장]",
+            "💌 불참(송금):  '박지성 5만원 불참'  →  [참석: 불참] [식권: 0장] (식대 차감 안 됨!)",
+            "👥 가족/동반:  '김가족,김친지 30만 이모'  →  [인원: 2명] [대인 식권 2장 자동 발급]",
         ),
     ),
     (
-        "인식되는 금액 표기",
+        "🔢 대인 · 소인 식권 쉬운 조작법",
         (
-            "100000 · 100,000 · 10만 · 10만원 · 10만 5천 · 3억 2천만",
-            "단위 없는 1,000 미만 숫자는 금액으로 보지 않습니다 (5 → 5만원으로 추측하지 않음)",
-            "줄 앞의 번호, 식권 수, 날짜, 전화번호, 계좌번호는 금액에서 자동 제외됩니다",
+            "• 입력할 때: '대1 소1', '대2 소1', '어른2 아이1', '식권3(소1)', '식권2', '애기1' 등 자연스럽게 적으세요.",
+            "• 표에서 직접 조절: 표의 '대인' / '소인' 칸에 있는 [▲] [▼] 버튼을 누르면 1장씩 즉시 늘어나고 줄어듭니다.",
+            "• 마우스 휠 지원: 대인/소인 셀 위에 마우스를 올리고 휠을 위/아래로 굴려도 숫자가 바로 바뀝니다.",
+            "• 우클릭 일괄 적용: 표에서 여러 행을 선택한 뒤 우클릭 → [식권 빠른 설정]으로 한 번에 변경 가능합니다.",
         ),
     ),
     (
-        "확인 필요 표시",
+        "📋 감사 메시지 1초 복사 & 발송 관리",
         (
-            "금액이나 이름을 확신하지 못하면 조용히 추측하지 않고 '확인 필요'로 표시합니다",
-            "상단의 '확인 필요' 카드를 누르면 해당 행만 모아 볼 수 있습니다",
-            "표의 값은 더블클릭으로 직접 수정할 수 있고, 수정 즉시 저장됩니다",
+            "• [📋 복사] 버튼: 누르면 관계별 맞춤 감사 문구가 클립보드에 복사되고 [✓ 복사완료]로 바뀝니다.",
+            "• 카톡으로 전송: 카카오톡 채팅창에서 Ctrl+V (붙여넣기) 후 엔터를 누르면 전송 끝!",
+            "• [✓ 발송] / [미발송] 버튼: 클릭하여 인사를 보낸 하객을 체크해 두면 나중에 중복 발송을 방지할 수 있습니다.",
         ),
     ),
     (
-        "현금 + 계좌이체 통합",
+        "📁 엑셀 파일 마우스 드래그 & 드롭 (통합)",
         (
-            "텍스트를 취합한 뒤 은행 엑셀(.xlsx)이나 CSV를 끌어다 놓으면 기존 목록에 이어붙습니다",
-            "같은 이름이 양쪽에 있으면 지우지 않고 '중복 의심'으로 표시합니다",
-            "은행 엑셀 상단의 안내 문구 행은 자동으로 건너뜁니다",
+            "• 은행 거래내역 엑셀 파일(.xlsx)이나 CSV 파일을 프로그램 창 안으로 마우스로 끌어다 놓으세요.",
+            "• 기존에 입력해 둔 현금 축의금 명단 뒤에 자동으로 안전하게 합쳐집니다.",
         ),
     ),
     (
-        "자동 저장",
+        "💡 편리한 단축키 및 자동 저장",
         (
-            "작업 내용은 사용자 데이터 폴더에 실시간 자동 저장됩니다",
-            "저장은 임시 파일 교체 방식이라 저장 도중 종료돼도 파일이 깨지지 않습니다",
-            "직전 정상본을 백업으로 보관해 파일 손상 시 자동 복구합니다",
+            "• Ctrl+Enter: 명단 자동 취합 및 파싱",
+            "• Ctrl+Z / Ctrl+Y: 모든 편집 실수 되돌리기 / 다시 실행",
+            "• F11 / Esc: 전체 화면 켜기 / 끄기",
+            "• 모든 작업 내용은 실시간으로 자동 저장되므로 프로그램을 껐다 켜도 안전합니다.",
         ),
     ),
 )
 
 
 class HelpDialog(QDialog):
-    """입력 가이드.
-
-    구버전은 이 내용을 하나의 거대한 HTML 문자열로 만들어 ``QLabel`` 에 넣었고,
-    포맷 지정을 놓쳐 태그가 그대로 노출되는 버그를 두 번 수정했다.
-    여기서는 데이터(위 튜플)와 표현을 분리해 그 계열의 버그가 생길 수 없게 한다.
-    """
+    """입력 가이드."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("입력 가이드")
-        self.resize(620, 560)
+        self.resize(680, 580)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(22, 22, 22, 22)
-        layout.setSpacing(8)
+        layout.setSpacing(10)
 
-        title = QLabel("축의금 텍스트 작성 가이드")
+        title = QLabel("축의금 마스터 1초 입력 가이드")
         title.setObjectName("sectionTitle")
         layout.addWidget(title)
 
+        banner = QFrame()
+        banner.setObjectName("hintBox")
+        banner_layout = QVBoxLayout(banner)
+        banner_layout.setContentsMargins(14, 10, 14, 10)
+        banner_text = QLabel("💡 양식에 얽매이지 않고 띄어쓰기만으로 편하게 적으시면 프로그램이 알아서 똑똑하게 분류합니다!")
+        banner_text.setObjectName("cardTitle")
+        banner_text.setWordWrap(True)
+        banner_layout.addWidget(banner_text)
+        layout.addWidget(banner)
+
         container = QWidget()
         container_layout = QVBoxLayout(container)
-        container_layout.setContentsMargins(0, 0, 8, 0)
-        container_layout.setSpacing(12)
+        container_layout.setContentsMargins(0, 4, 8, 4)
+        container_layout.setSpacing(14)
 
         for heading, lines in _GUIDE_SECTIONS:
+            card = QFrame()
+            card.setObjectName("card")
+            card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(14, 12, 14, 12)
+            card_layout.setSpacing(6)
+
             heading_label = QLabel(heading)
             heading_label.setObjectName("cardTitle")
-            container_layout.addWidget(heading_label)
+            card_layout.addWidget(heading_label)
+
             for line in lines:
-                item = QLabel(f"• {line}")
+                item = QLabel(line)
                 item.setWordWrap(True)
                 item.setTextFormat(Qt.TextFormat.PlainText)
-                container_layout.addWidget(item)
+                card_layout.addWidget(item)
+
+            container_layout.addWidget(card)
         container_layout.addStretch()
 
         scroll = QScrollArea()
@@ -231,13 +247,36 @@ class HelpDialog(QDialog):
         scroll.setWidget(container)
         layout.addWidget(scroll)
 
-        box = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        close_button = box.button(QDialogButtonBox.StandardButton.Close)
-        close_button.setText("닫기")
-        close_button.setObjectName("primary")
-        box.rejected.connect(self.accept)
-        box.accepted.connect(self.accept)
-        layout.addWidget(box)
+        bottom_layout = QHBoxLayout()
+        bottom_layout.setSpacing(8)
+
+        self._btn_copy_sample = QPushButton("📋 대표 예시 복사하기")
+        self._btn_copy_sample.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_copy_sample.setToolTip("클릭하면 4가지 대표 예시 텍스트를 클립보드에 복사합니다.")
+        self._btn_copy_sample.clicked.connect(self._copy_examples)
+        bottom_layout.addWidget(self._btn_copy_sample)
+
+        bottom_layout.addStretch()
+
+        btn_close = QPushButton("닫기")
+        btn_close.setObjectName("primary")
+        btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_close.clicked.connect(self.accept)
+        bottom_layout.addWidget(btn_close)
+
+        layout.addLayout(bottom_layout)
+
+    def _copy_examples(self) -> None:
+        examples = (
+            "홍길동 10만원 친척\n"
+            "최동료 10만 대2 소1\n"
+            "박지성 5만원 불참\n"
+            "김가족,김친지 30만 이모"
+        )
+        clipboard = QApplication.clipboard()
+        if clipboard:
+            clipboard.setText(examples)
+            self._btn_copy_sample.setText("✓ 예시가 복사되었습니다!")
 
 
 class SnapshotRestoreDialog(QDialog):

@@ -72,10 +72,10 @@ TOOLTIPS: dict[Column, str] = {
     Column.AMOUNT: "더블클릭하면 금액을 직접 수정할 수 있습니다.",
     Column.RELATION: "클릭하면 관계 목록이 열립니다. 바꾸면 감사 메시지 문구가 즉시 바뀝니다.",
     Column.ATTENDANCE: "클릭하면 참석 / 불참(송금)을 고를 수 있습니다.",
-    Column.ADULT_TICKETS: "발급된 대인 식권 수. 식대 차감의 기준입니다.",
-    Column.CHILD_TICKETS: "발급된 소인 식권 수.",
-    Column.COPY: "클릭하면 감사 메시지가 클립보드에 복사됩니다.",
-    Column.SENT: "감사 인사를 실제로 보냈는지 직접 체크하세요.",
+    Column.ADULT_TICKETS: "▲/▼ 버튼을 누르거나 마우스 휠을 굴려 대인 식권 수를 조절합니다.",
+    Column.CHILD_TICKETS: "▲/▼ 버튼을 누르거나 마우스 휠을 굴려 소인 식권 수를 조절합니다.",
+    Column.COPY: "클릭하면 맞춤 감사 메시지가 클립보드에 복사됩니다.",
+    Column.SENT: "클릭하면 발송/미발송 상태를 즉시 토글합니다.",
     Column.REVIEW: "파서가 확신하지 못한 항목입니다. 값을 확인해 주세요.",
 }
 
@@ -277,8 +277,13 @@ class GuestTableModel(QAbstractTableModel):
             return False
         column = Column(index.column())
 
-        if role == Qt.ItemDataRole.CheckStateRole and column is Column.SENT:
-            new_value = Qt.CheckState(value) == Qt.CheckState.Checked
+        if column is Column.SENT:
+            if role == Qt.ItemDataRole.CheckStateRole:
+                new_value = Qt.CheckState(value) == Qt.CheckState.Checked
+            elif role == Qt.ItemDataRole.EditRole:
+                new_value = bool(value)
+            else:
+                return False
             if new_value == guest.sent_thanks:
                 return True
             return self._push_or_commit(index.row(), column, guest.sent_thanks, new_value)
@@ -466,9 +471,9 @@ class GuestTableModel(QAbstractTableModel):
         if column is Column.ATTENDANCE:
             return guest.attendance.value
         if column is Column.ADULT_TICKETS:
-            return guest.adult_tickets or ""
+            return guest.adult_tickets if guest.adult_tickets else 0
         if column is Column.CHILD_TICKETS:
-            return guest.child_tickets or ""
+            return guest.child_tickets if guest.child_tickets else 0
         if column is Column.REVIEW:
             return " / ".join(guest.warnings)
         if column is Column.RAW:

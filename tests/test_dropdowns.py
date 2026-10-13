@@ -62,6 +62,59 @@ def test_pick_is_undoable(window, qt_app):
     assert window._model.guests[0].relation is Relation.OTHER
 
 
+def test_ticket_stepper_buttons(window, qt_app):
+    """대인/소인 위아래(▲/▼) 버튼 클릭으로 숫자가 증감한다."""
+    table = window._table
+    # 0번 하객: 한주안 10만원 (초기 대인 1장, 소인 0장)
+    assert window._model.guests[0].adult_tickets == 1
+    assert window._model.guests[0].child_tickets == 0
+
+    # 대인 ▲ 버튼 클릭 (오른쪽 상단)
+    idx_adult = window._proxy.index(0, int(Column.ADULT_TICKETS))
+    rect_adult = table.visualRect(idx_adult)
+    delegate = table.itemDelegateForColumn(int(Column.ADULT_TICKETS))
+    up_rect, down_rect = delegate._button_rects(rect_adult)
+
+    QTest.mouseClick(table.viewport(), Qt.MouseButton.LeftButton, pos=up_rect.center())
+    qt_app.processEvents()
+    assert window._model.guests[0].adult_tickets == 2, "▲ 버튼을 누르면 대인 식권이 1 늘어야 한다"
+
+    # 대인 ▼ 버튼 클릭
+    QTest.mouseClick(table.viewport(), Qt.MouseButton.LeftButton, pos=down_rect.center())
+    qt_app.processEvents()
+    assert window._model.guests[0].adult_tickets == 1, "▼ 버튼을 누르면 대인 식권이 1 줄어야 한다"
+
+    # Ctrl+Z 로 되돌리기
+    QTest.keyClick(window, Qt.Key.Key_Z, Qt.KeyboardModifier.ControlModifier)
+    qt_app.processEvents()
+    assert window._model.guests[0].adult_tickets == 2, "Ctrl+Z 로 되돌릴 수 있어야 한다"
+
+    # 소인 ▲ 버튼 클릭
+    idx_child = window._proxy.index(0, int(Column.CHILD_TICKETS))
+    rect_child = table.visualRect(idx_child)
+    up_child, down_child = delegate._button_rects(rect_child)
+
+    QTest.mouseClick(table.viewport(), Qt.MouseButton.LeftButton, pos=up_child.center())
+    qt_app.processEvents()
+    assert window._model.guests[0].child_tickets == 1, "▲ 버튼을 누르면 소인 식권이 1 늘어야 한다"
+
+
+def test_sent_badge_toggle(window, qt_app):
+    """발송 칸 클릭 시 발송/미발송 상태가 즉시 토글된다."""
+    table = window._table
+    assert window._model.guests[0].sent_thanks is False
+
+    idx_sent = window._proxy.index(0, int(Column.SENT))
+    rect_sent = table.visualRect(idx_sent)
+    QTest.mouseClick(table.viewport(), Qt.MouseButton.LeftButton, pos=rect_sent.center())
+    qt_app.processEvents()
+    assert window._model.guests[0].sent_thanks is True, "클릭 시 발송완료로 바뀌어야 한다"
+
+    QTest.mouseClick(table.viewport(), Qt.MouseButton.LeftButton, pos=rect_sent.center())
+    qt_app.processEvents()
+    assert window._model.guests[0].sent_thanks is False, "다시 클릭 시 미발송으로 바뀌어야 한다"
+
+
 def test_other_columns_still_need_double_click(window, qt_app):
     """금액 · 이름은 한 번 클릭으로 편집되지 않는다(줄 선택과 겹치지 않게)."""
     table = window._table
@@ -74,6 +127,26 @@ def test_other_columns_still_need_double_click(window, qt_app):
 def test_tooltips_say_click():
     assert "클릭" in TOOLTIPS[Column.RELATION]
     assert "클릭" in TOOLTIPS[Column.ATTENDANCE]
+    assert "버튼" in TOOLTIPS[Column.ADULT_TICKETS]
+    assert "버튼" in TOOLTIPS[Column.CHILD_TICKETS]
+
+
+def test_ticket_bulk_actions(window, qt_app):
+    window._set_tickets_bulk([0, 1], adult=2, child=1)
+    qt_app.processEvents()
+    assert window._model.guests[0].adult_tickets == 2
+    assert window._model.guests[0].child_tickets == 1
+    assert window._model.guests[1].adult_tickets == 2
+    assert window._model.guests[1].child_tickets == 1
+
+    window._add_child_ticket_bulk([0])
+    qt_app.processEvents()
+    assert window._model.guests[0].child_tickets == 2
+
+    # Ctrl+Z 로 되돌리기
+    QTest.keyClick(window, Qt.Key.Key_Z, Qt.KeyboardModifier.ControlModifier)
+    qt_app.processEvents()
+    assert window._model.guests[0].child_tickets == 1
 
 
 def test_context_menus_are_styled():
