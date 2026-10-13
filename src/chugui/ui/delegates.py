@@ -194,7 +194,7 @@ class AttendanceDelegate(_ClickOpensList, QStyledItemDelegate):
 class TicketStepperDelegate(_PaletteAware, QStyledItemDelegate):
     """식권 수 증감 버튼(▲ / ▼) 델리게이트.
 
-    셀 안에 위/아래(▲ / ▼) 증감 버튼이 직관적으로 배치되어,
+    셀 안에 세련된 위/아래(▲ / ▼) 증감 스텝퍼 버튼이 배치되어,
     원클릭으로 숫자를 늘리거나 줄일 수 있고 마우스 휠 스크롤로도 즉시 증감된다.
     """
 
@@ -205,15 +205,25 @@ class TicketStepperDelegate(_PaletteAware, QStyledItemDelegate):
         self._hover_col = -1
         self._hover_btn = 0  # 0: none, 1: up, -1: down
 
+    def set_hover_row(self, row: int) -> None:
+        if self._hover_row != row:
+            self._hover_row = row
+            if row < 0:
+                self._hover_col = -1
+                self._hover_btn = 0
+
+    def _container_rect(self, option_rect: QRect) -> QRect:
+        w = 20
+        h = 24
+        x = option_rect.right() - w - 4
+        y = option_rect.center().y() - (h // 2)
+        return QRect(x, y, w, h)
+
     def _button_rects(self, option_rect: QRect) -> tuple[QRect, QRect]:
-        btn_w = 20
-        margin_r = 4
-        x = option_rect.right() - btn_w - margin_r
-        y = option_rect.top() + 4
-        total_h = option_rect.height() - 8
-        half_h = max(8, (total_h - 2) // 2)
-        up_rect = QRect(x, y, btn_w, half_h)
-        down_rect = QRect(x, y + half_h + 2, btn_w, half_h)
+        c = self._container_rect(option_rect)
+        half_h = c.height() // 2
+        up_rect = QRect(c.left(), c.top(), c.width(), half_h)
+        down_rect = QRect(c.left(), c.top() + half_h, c.width(), c.height() - half_h)
         return up_rect, down_rect
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
@@ -223,19 +233,20 @@ class TicketStepperDelegate(_PaletteAware, QStyledItemDelegate):
         val = index.data(Qt.ItemDataRole.EditRole)
         count = int(val) if val is not None else 0
 
+        container = self._container_rect(option.rect)
         up_rect, down_rect = self._button_rects(option.rect)
-        btn_w = up_rect.width()
+
+        # 1. 숫자 그리기 (스텝퍼 왼쪽 영역에 깔끔하게 중앙 정렬)
         num_rect = QRect(
-            option.rect.left() + 2,
+            option.rect.left(),
             option.rect.top(),
-            option.rect.width() - btn_w - 8,
+            max(10, container.left() - option.rect.left() - 2),
             option.rect.height(),
         )
 
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
-        # 1. 숫자 그리기
         font = QFont(option.font)
         font.setBold(True)
         painter.setFont(font)
@@ -247,40 +258,56 @@ class TicketStepperDelegate(_PaletteAware, QStyledItemDelegate):
             display_text = str(count)
         painter.drawText(num_rect, Qt.AlignmentFlag.AlignCenter, display_text)
 
-        # 2. ▲ 버튼 그리기
-        is_up_hover = (
-            index.row() == self._hover_row
-            and index.column() == self._hover_col
-            and self._hover_btn == 1
-        )
-        is_down_hover = (
-            index.row() == self._hover_row
-            and index.column() == self._hover_col
-            and self._hover_btn == -1
-        )
+        # 2. 일체형 스텝퍼 컨테이너 그리기
+        is_hovered = (index.row() == self._hover_row)
+        is_up_hover = is_hovered and (self._hover_btn == 1)
+        is_down_hover = is_hovered and (self._hover_btn == -1)
 
-        up_bg = QColor(self._palette.accent if is_up_hover else self._palette.surface_alt)
-        up_fg = QColor("#ffffff" if is_up_hover else self._palette.text)
-        painter.setPen(QColor(self._palette.border_strong if is_up_hover else self._palette.border))
-        painter.setBrush(up_bg)
-        painter.drawRoundedRect(up_rect, 3, 3)
+        border_col = QColor(self._palette.border_strong if is_hovered else self._palette.border)
+        bg_col = QColor(self._palette.surface_alt)
+        painter.setPen(border_col)
+        painter.setBrush(bg_col)
+        painter.drawRoundedRect(container, 4, 4)
 
-        btn_font = QFont(option.font)
-        btn_font.setPointSize(max(7, btn_font.pointSize() - 3))
-        btn_font.setBold(True)
-        painter.setFont(btn_font)
-        painter.setPen(up_fg)
-        painter.drawText(up_rect, Qt.AlignmentFlag.AlignCenter, "▲")
+        # 호버 시 개별 버튼 은은한 하이라이트
+        if is_up_hover:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(99, 102, 241, 140))
+            painter.drawRoundedRect(up_rect, 4, 4)
+        elif is_down_hover:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(99, 102, 241, 140))
+            painter.drawRoundedRect(down_rect, 4, 4)
 
-        # 3. ▼ 버튼 그리기
-        down_bg = QColor(self._palette.accent if is_down_hover else self._palette.surface_alt)
-        down_fg = QColor("#ffffff" if is_down_hover else self._palette.text)
-        painter.setPen(QColor(self._palette.border_strong if is_down_hover else self._palette.border))
-        painter.setBrush(down_bg)
-        painter.drawRoundedRect(down_rect, 3, 3)
+        # 중간 구분선
+        painter.setPen(border_col)
+        mid_y = up_rect.bottom()
+        painter.drawLine(container.left() + 2, mid_y, container.right() - 2, mid_y)
 
-        painter.setPen(down_fg)
-        painter.drawText(down_rect, Qt.AlignmentFlag.AlignCenter, "▼")
+        # 3. 정밀 벡터 화살표 (폰트 깨짐 없는 깔끔한 렌더링)
+        cx = container.center().x()
+        cy_up = up_rect.center().y()
+        cy_down = down_rect.center().y()
+
+        arrow_up_col = QColor("#ffffff" if is_up_hover else self._palette.text_subtle)
+        arrow_down_col = QColor("#ffffff" if is_down_hover else self._palette.text_subtle)
+
+        # 상단 ▲ 화살표
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(arrow_up_col)
+        painter.drawPolygon(QPolygonF([
+            QPointF(cx - 3.5, cy_up + 1.5),
+            QPointF(cx + 3.5, cy_up + 1.5),
+            QPointF(cx, cy_up - 2.5),
+        ]))
+
+        # 하단 ▼ 화살표
+        painter.setBrush(arrow_down_col)
+        painter.drawPolygon(QPolygonF([
+            QPointF(cx - 3.5, cy_down - 1.5),
+            QPointF(cx + 3.5, cy_down - 1.5),
+            QPointF(cx, cy_down + 2.5),
+        ]))
 
         painter.restore()
 
@@ -389,29 +416,29 @@ class CopyButtonDelegate(_PaletteAware, QStyledItemDelegate):
 
         if sent:
             # 복사 및 발송 완료 상태: 정갈한 에메랄드 그린
-            background = "#047857" if hovered else "#064e3b"
-            foreground = "#ffffff" if hovered else "#6ee7b7"
-            border = "#34d399" if hovered else "#10b981"
+            background = QColor("#047857" if hovered else "#064e3b")
+            foreground = QColor("#ffffff" if hovered else "#6ee7b7")
+            border = QColor(52, 211, 153, 200 if hovered else 120)
             label = "✓ 복사완료"
         else:
-            # 아직 복사 안 한 상태: 눈에 확 띄는 선명한 액션 버튼 (비비드 인디고)
-            background = "#6366f1" if hovered else "#4338ca"
-            foreground = "#ffffff"
-            border = "#c7d2fe" if hovered else "#818cf8"
+            # 아직 복사 안 한 상태: 눈에 확 띄는 세련된 인디고 액션 버튼
+            background = QColor("#4f46e5" if hovered else "#4338ca")
+            foreground = QColor("#ffffff")
+            border = QColor(165, 180, 252, 180 if hovered else 90)
             label = "📋 복사"
 
         rect = self._button_rect(option.rect)
 
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        painter.setPen(QColor(border))
-        painter.setBrush(QColor(background))
+        painter.setPen(border)
+        painter.setBrush(background)
         painter.drawRoundedRect(rect, 6, 6)
 
         font = QFont(option.font)
         font.setBold(True)
         painter.setFont(font)
-        painter.setPen(QColor(foreground))
+        painter.setPen(foreground)
         painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, label)
         painter.restore()
 
@@ -476,21 +503,21 @@ class SentBadgeDelegate(_PaletteAware, QStyledItemDelegate):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
         if sent:
-            # 발송 완료: 선명한 에메랄드 그린 뱃지
-            bg_color = QColor("#047857" if hovered else "#064e3b")
-            border_color = QColor("#34d399" if hovered else "#10b981")
+            # 발송 완료: 우아한 에메랄드 그린 뱃지
+            bg_color = QColor(4, 120, 87, 220 if hovered else 180)
+            border_color = QColor(52, 211, 153, 220 if hovered else 120)
             text_color = QColor("#ffffff" if hovered else "#6ee7b7")
             label = "✓ 발송"
         else:
-            # 미발송: 깔끔한 테두리 버튼
-            bg_color = QColor("#37306b" if hovered else "#1e1a42")
-            border_color = QColor("#818cf8" if hovered else "#4c4286")
-            text_color = QColor("#e0e7ff" if hovered else "#9ca3af")
+            # 미발송: 깔끔한 서브틀 뱃지 버튼
+            bg_color = QColor(41, 36, 94, 220 if hovered else 160)
+            border_color = QColor(169, 184, 255, 180 if hovered else 90)
+            text_color = QColor("#ffffff" if hovered else "#a9a0e0")
             label = "미발송"
 
         painter.setPen(border_color)
         painter.setBrush(bg_color)
-        painter.drawRoundedRect(rect, 4, 4)
+        painter.drawRoundedRect(rect, 6, 6)
 
         font = QFont(option.font)
         font.setBold(True)
@@ -520,8 +547,9 @@ def install_hover_tracking(view: QAbstractItemView, delegate, column: int) -> No
 
     def _on_entered(index: QModelIndex) -> None:
         row = index.row() if index.column() == column else -1
-        if hasattr(delegate, "_hover_row") and row != delegate._hover_row:
-            delegate.set_hover_row(row)
-            view.viewport().update()
+        if hasattr(delegate, "set_hover_row"):
+            if not hasattr(delegate, "_hover_row") or row != delegate._hover_row:
+                delegate.set_hover_row(row)
+                view.viewport().update()
 
     view.entered.connect(_on_entered)

@@ -152,7 +152,7 @@ RETRO = Palette(
         Relation.OTHER.value: BadgeColors("#26215a", "#e4e0ff", "#6a5fd0"),
     },
     font_stack=PIXEL_FONT_STACK,
-    radius_scale=0.0,
+    radius_scale=1.0,
     retro=True,
     bevel="#05040f",
 )
@@ -291,70 +291,118 @@ def _base_stylesheet(p: Palette, r_sm: int, r_md: int, bw: int) -> str:
         border-radius: {r_sm}px;
         padding: {Space.SM}px {Space.LG}px;
         min-height: {Size.CONTROL_HEIGHT - 12}px;
-        border: 1px solid {p.border_strong};
+        border: 1px solid {p.border};
         background-color: {p.surface_alt};
         color: {p.text};
     }}
-    QPushButton:hover {{ background-color: {p.surface_hover}; border-color: {p.accent}; }}
-    QPushButton:pressed {{ background-color: {p.surface_hover}; padding-top: {Space.SM + 1}px; }}
-    QPushButton:focus {{ border: 2px solid {p.focus_ring}; }}
-    QPushButton:disabled {{ color: {p.text_subtle}; border-color: {p.border}; background: transparent; }}
+    QPushButton:hover {{
+        background-color: {p.surface_hover};
+        border-color: {p.border_strong};
+        color: {p.text};
+    }}
+    QPushButton:pressed {{
+        background-color: {p.surface};
+        border-color: {p.accent_strong};
+    }}
+    QPushButton:focus {{
+        border: 1px solid {p.focus_ring};
+        outline: none;
+    }}
+    QPushButton:disabled {{
+        color: {p.text_subtle};
+        border-color: {p.border};
+        background-color: transparent;
+    }}
 
     QPushButton#primary {{
         background-color: {p.accent_strong};
         color: #ffffff;
-        border: 1px solid {p.accent_strong};
+        border: 1px solid {p.accent_hover};
+        border-radius: {r_sm}px;
         min-height: {Size.CONTROL_HEIGHT - 8}px;
         font-size: {FontSize.SUBTITLE}px;
     }}
-    QPushButton#primary:hover {{ background-color: {p.accent_hover}; border-color: {p.accent_hover}; }}
+    QPushButton#primary:hover {{
+        background-color: {p.accent_hover};
+        border-color: {p.accent};
+    }}
+    QPushButton#primary:pressed {{
+        background-color: #3b2f9e;
+        border-color: {p.accent_strong};
+    }}
 
     QPushButton#success {{
         background-color: {p.positive_strong};
         color: #ffffff;
-        border: 1px solid {p.positive_strong};
+        border: 1px solid {p.positive_border};
+        border-radius: {r_sm}px;
         min-height: {Size.CONTROL_HEIGHT - 8}px;
         font-size: {FontSize.SUBTITLE}px;
     }}
-    QPushButton#success:hover {{ background-color: {p.positive}; border-color: {p.positive}; }}
+    QPushButton#success:hover {{
+        background-color: #238f53;
+        border-color: {p.positive};
+    }}
+    QPushButton#success:pressed {{
+        background-color: #155e35;
+        border-color: {p.positive_strong};
+    }}
 
     QPushButton#successOutline {{
         color: {p.positive};
-        background-color: transparent;
+        background-color: {p.positive_surface};
         border: 1px solid {p.positive_border};
+        border-radius: {r_sm}px;
         min-height: {Size.CONTROL_HEIGHT - 8}px;
         font-size: {FontSize.SUBTITLE}px;
     }}
-    QPushButton#successOutline:hover {{ background-color: {p.positive_surface}; }}
+    QPushButton#successOutline:hover {{
+        background-color: #163e2a;
+        border-color: {p.positive};
+    }}
 
     QPushButton#ghost {{
         min-height: {Size.COMPACT_HEIGHT - 8}px;
         font-size: {FontSize.SMALL}px;
         color: {p.text_muted};
-        background-color: transparent;
+        background-color: {p.surface_alt};
         border: 1px solid {p.border};
+        border-radius: {r_sm}px;
         padding: {Space.XS}px {Space.MD}px;
     }}
     QPushButton#ghost:hover {{
-        color: {p.accent};
-        border-color: {p.accent};
+        color: {p.text};
+        border-color: {p.border_strong};
         background-color: {p.surface_hover};
+    }}
+    QPushButton#ghost:pressed {{
+        background-color: {p.surface};
+        border-color: {p.border_strong};
     }}
 
     QPushButton#danger {{
         color: {p.danger};
         background-color: transparent;
         border: 1px solid {p.border};
+        border-radius: {r_sm}px;
     }}
-    QPushButton#danger:hover {{ border-color: {p.danger}; background-color: {p.surface_hover}; }}
+    QPushButton#danger:hover {{
+        border-color: {p.danger};
+        background-color: {p.surface_hover};
+    }}
 
     QPushButton#bannerAction {{
         color: {p.warning_text};
         background-color: transparent;
         border: 1px solid {p.warning_border};
+        border-radius: {r_sm}px;
         min-height: {Size.MIN_HIT_TARGET - 6}px;
         font-size: {FontSize.SMALL}px;
         padding: {Space.XS}px {Space.MD}px;
+    }}
+    QPushButton#bannerAction:hover {{
+        background-color: {p.warning_surface};
+        border-color: {p.warning};
     }}
 
     /* ------------------------------------------------------------ 목록 */
@@ -496,47 +544,9 @@ def _base_stylesheet(p: Palette, r_sm: int, r_md: int, bw: int) -> str:
 
 
 def _retro_stylesheet(p: Palette) -> str:
-    """레트로 느낌은 픽셀 폰트와 각진 모서리로만 낸다. 장식은 최소한으로.
-
-    Qt 스타일시트는 그림자를 지원하지 않으므로 아래쪽 테두리를 조금 두껍게 칠해
-    얕은 입체감을 만들고, 누르면 그 두께를 위쪽 여백으로 옮긴다.
-    """
+    """헤더와 보조 위젯을 깔끔하게 다듬는다."""
     return f"""
     QHeaderView::section {{ border-bottom: 2px solid {p.border_strong}; }}
-
-    QPushButton {{
-        border: 1px solid {p.border_strong};
-        border-bottom: 3px solid {p.bevel};
-    }}
-    QPushButton:pressed {{
-        border-bottom: 1px solid {p.bevel};
-        margin-top: 2px;
-    }}
-    QPushButton#primary, QPushButton#success {{
-        border: 1px solid {p.bevel};
-        border-bottom: 3px solid {p.bevel};
-    }}
-    QPushButton#successOutline {{
-        border: 1px solid {p.positive_border};
-        border-bottom: 3px solid {p.bevel};
-    }}
-    QPushButton#primary:pressed, QPushButton#success:pressed, QPushButton#successOutline:pressed {{
-        border-bottom: 1px solid {p.bevel};
-        margin-top: 2px;
-    }}
-    /* 머리줄 버튼은 거의 검은 창 바탕 위에 놓인다. 그림자색(bevel)을 쓰면 아래 테두리가
-       바탕에 묻혀 버튼이 아래가 잘린 탭처럼 보였다. 테두리 색으로 입체감을 낸다. */
-    QPushButton#ghost, QPushButton#danger {{
-        border: 1px solid {p.border_strong};
-        border-bottom: 3px solid {p.border};
-    }}
-    QPushButton#ghost:pressed, QPushButton#danger:pressed {{
-        border-bottom: 1px solid {p.border};
-        margin-top: 2px;
-    }}
-
-    QCheckBox::indicator {{ border-radius: 0px; }}
-    QScrollBar::handle:vertical, QScrollBar::handle:horizontal {{ border-radius: 0px; }}
     """
 
 

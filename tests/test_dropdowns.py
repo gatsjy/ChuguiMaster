@@ -155,3 +155,19 @@ def test_context_menus_are_styled():
     assert "QMenu {" in sheet
     assert f"background-color: {PALETTE.surface}" in sheet.split("QMenu {", 1)[1].split("}", 1)[0]
     assert "QMenu::item:selected" in sheet
+
+
+def test_ticket_stepper_mouse_hover(window, qt_app):
+    """표에서 마우스 이동/호버 시 TicketStepperDelegate가 정상 동작하고 예외가 발생하지 않는다."""
+    table = window._table
+    idx = window._proxy.index(0, int(Column.ADULT_TICKETS))
+    rect = table.visualRect(idx)
+    QTest.mouseMove(table.viewport(), rect.center())
+    qt_app.processEvents()
+    delegate = table.itemDelegateForColumn(int(Column.ADULT_TICKETS))
+    assert hasattr(delegate, "set_hover_row")
+    delegate.set_hover_row(0)
+    assert delegate._hover_row == 0
+    delegate.set_hover_row(-1)
+    assert delegate._hover_row == -1
+
