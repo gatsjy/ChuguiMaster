@@ -142,7 +142,7 @@ RETRO = Palette(
     warning_border="#c98a00",
     danger="#ff8aa0",
     grid="#26215a",
-    selection="#3b2f7a",
+    selection="#3b3280",
     focus_ring="#a9b8ff",
     badges={
         Relation.FAMILY.value: BadgeColors("#3a0f4f", "#ffa8f5", "#c04bd8"),
@@ -427,8 +427,8 @@ def _base_stylesheet(p: Palette, r_sm: int, r_md: int, bw: int) -> str:
         gridline-color: transparent;
         font-size: {FontSize.BODY}px;
         color: {p.text};
-        selection-background-color: #3b3280;
-        selection-color: #ffffff;
+        selection-background-color: {p.selection};
+        selection-color: {p.text};
         outline: none;
     }}
     QTableView::item {{
@@ -438,8 +438,8 @@ def _base_stylesheet(p: Palette, r_sm: int, r_md: int, bw: int) -> str:
     }}
     QTableView::item:hover:!selected {{ background-color: {p.surface_hover}; }}
     QTableView::item:selected {{
-        background-color: #3b3280;
-        color: #ffffff;
+        background-color: {p.selection};
+        color: {p.text};
     }}
     QTableView::item:focus {{
         border: none;

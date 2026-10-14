@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QLineEdit,
+    QPushButton,
     QSpinBox,
     QTextEdit,
     QWidget,
@@ -407,6 +408,32 @@ class TestLayoutRobustness:
         assert required <= loaded_window.minimumHeight(), (
             f"레이아웃이 {required}px를 요구하는데 최소 높이는 {loaded_window.minimumHeight()}px"
         )
+
+    def test_height_fits_with_review_banner_shown(self, window, qt_app):
+        """확인 필요 배너까지 뜬 상태에서도 최소 높이 안에 들어가야 한다.
+
+        배너가 숨은 상태만 재다가, 배너 + 입력 가이드 줄이 겹친 경우 안내 글자가 다시 겹쳤다.
+        """
+        window._model.set_guests(parse_text("홍길동 10만원\n무명 오만원"))
+        qt_app.processEvents()
+        assert window._review_banner.isVisible()
+        required = (
+            window.centralWidget().minimumSizeHint().height() + window.statusBar().sizeHint().height()
+        )
+        assert required <= window.minimumHeight(), f"{required}px > {window.minimumHeight()}px"
+
+    def test_single_input_guide_button(self, window):
+        """입력 가이드 버튼이 머리줄과 입력창에 하나씩 두 개 있었다."""
+        guides = [b for b in window.findChildren(QPushButton) if "입력 가이드" in b.text()]
+        assert len(guides) == 1
+
+    def test_toast_does_not_cover_export_button(self, loaded_window, qt_app):
+        loaded_window._toast.show_message("테스트 알림")
+        qt_app.processEvents()
+        toast = loaded_window._toast.geometry()
+        export = loaded_window._btn_export
+        export_rect = export.rect().translated(export.mapTo(loaded_window, export.rect().topLeft()))
+        assert not toast.intersects(export_rect)
 
     @pytest.mark.parametrize(
         "line",

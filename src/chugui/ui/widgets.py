@@ -52,6 +52,7 @@ class ToastNotification(QFrame):
         layout.addWidget(self._action)
 
         self._action_callback: Callable[[], None] | None = None
+        self._bottom_margin = 48
 
         self._opacity = QGraphicsOpacityEffect(self)
         self._opacity.setOpacity(0.0)
@@ -132,6 +133,10 @@ class ToastNotification(QFrame):
         self._animation.start()
         self._timer.start(max(600, duration_ms))
 
+    def set_bottom_margin(self, pixels: int) -> None:
+        """창 아래에서 띄울 거리. 맨 아래 버튼 줄을 가리지 않게 창이 알려 준다."""
+        self._bottom_margin = max(8, pixels)
+
     def reposition(self) -> None:
         """부모 크기가 바뀌어도 하단 중앙을 유지한다. 부모 밖으로 나가지 않는다."""
         parent = self.parentWidget()
@@ -139,7 +144,7 @@ class ToastNotification(QFrame):
             return
         rect = parent.rect()
         x = max(0, min(rect.width() - self.width(), (rect.width() - self.width()) // 2))
-        y = max(0, rect.height() - self.height() - 48)
+        y = max(0, rect.height() - self.height() - self._bottom_margin)
         self.move(QPoint(x, y))
 
     def _start_fade_out(self) -> None:

@@ -110,7 +110,7 @@ class RelationBadgeDelegate(_ClickOpensList, _PaletteAware, QStyledItemDelegate)
             return
 
         if option.state & QStyle.StateFlag.State_Selected:
-            painter.fillRect(option.rect, QColor("#3b3280"))
+            painter.fillRect(option.rect, option.palette.highlight())
 
         colors = badge_colors(self._palette, guest.relation)
         text = guest.relation.value
@@ -172,7 +172,7 @@ class AttendanceDelegate(_ClickOpensList, QStyledItemDelegate):
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
         if option.state & QStyle.StateFlag.State_Selected:
-            painter.fillRect(option.rect, QColor("#3b3280"))
+            painter.fillRect(option.rect, option.palette.highlight())
         super().paint(painter, option, index)
         color = QColor(option.palette.text().color())
         if not option.state & QStyle.StateFlag.State_MouseOver:
@@ -196,8 +196,13 @@ class AttendanceDelegate(_ClickOpensList, QStyledItemDelegate):
 class TicketStepperDelegate(_PaletteAware, QStyledItemDelegate):
     """식권 수 증감 버튼(▲ / ▼) 델리게이트.
 
-    셀 안에 세련된 위/아래(▲ / ▼) 증감 스텝퍼 버튼이 배치되어,
-    원클릭으로 숫자를 늘리거나 줄일 수 있고 마우스 휠 스크롤로도 즉시 증감된다.
+    **▲ / ▼ 버튼 안을 눌렀을 때만** 값이 바뀐다. 숫자를 누르면 줄이 선택될 뿐이고,
+    숫자를 더블클릭하면 직접 입력할 수 있다.
+
+    예전에는 칸 어디를 눌러도 위쪽 절반이면 +1, 아래쪽 절반이면 -1 이었다.
+    줄을 고르려고 숫자를 누르기만 해도 식권 수(= 식대)가 조용히 바뀌었다.
+    마우스 휠로 바꾸는 기능은 넣지 않는다. 표를 스크롤하다 지나가는 칸의 값이
+    바뀌는 사고가 나기 때문이다(그리고 표가 휠 이벤트를 칸에 넘기지도 않는다).
     """
 
     def __init__(self, palette: Palette, parent: QWidget | None = None) -> None:
@@ -230,7 +235,7 @@ class TicketStepperDelegate(_PaletteAware, QStyledItemDelegate):
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
         if option.state & QStyle.StateFlag.State_Selected:
-            painter.fillRect(option.rect, QColor("#3b3280"))
+            painter.fillRect(option.rect, option.palette.highlight())
 
         val = index.data(Qt.ItemDataRole.EditRole)
         count = int(val) if val is not None else 0
@@ -272,14 +277,10 @@ class TicketStepperDelegate(_PaletteAware, QStyledItemDelegate):
         painter.drawRoundedRect(container, 4, 4)
 
         # 호버 시 개별 버튼 은은한 하이라이트
-        if is_up_hover:
+        if is_up_hover or is_down_hover:
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor("#4c3fb5"))
-            painter.drawRoundedRect(up_rect, 4, 4)
-        elif is_down_hover:
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor("#4c3fb5"))
-            painter.drawRoundedRect(down_rect, 4, 4)
+            painter.setBrush(QColor(self._palette.accent_strong))
+            painter.drawRoundedRect(up_rect if is_up_hover else down_rect, 4, 4)
 
         # 중간 구분선 (블러 없이 선명하게 그리기)
         painter.fillRect(container.left() + 2, up_rect.bottom(), container.width() - 4, 1, border_col)
@@ -327,26 +328,10 @@ class TicketStepperDelegate(_PaletteAware, QStyledItemDelegate):
                 model.setData(index, current + 1, Qt.ItemDataRole.EditRole)
                 return True
             if down_rect.contains(pos):
-                model.setData(index, max(0, current - 1), Qt.ItemDataRole.EditRole)
+                if current > 0:  # 0 에서 ▼ 는 아무 일도 아니다. 빈 되돌리기 항목을 쌓지 않는다.
+                    model.setData(index, current - 1, Qt.ItemDataRole.EditRole)
                 return True
-            # 버튼 외 셀 영역 클릭 시: 위쪽 절반 클릭이면 +1, 아래쪽 절반 클릭이면 -1
-            if option.rect.contains(pos):
-                if pos.y() < option.rect.center().y():
-                    model.setData(index, current + 1, Qt.ItemDataRole.EditRole)
-                else:
-                    model.setData(index, max(0, current - 1), Qt.ItemDataRole.EditRole)
-                return True
-
-        elif event.type() == QEvent.Type.Wheel:
-            delta = event.angleDelta().y()
-            val = index.data(Qt.ItemDataRole.EditRole)
-            current = int(val) if val is not None else 0
-            if delta > 0:
-                model.setData(index, current + 1, Qt.ItemDataRole.EditRole)
-                return True
-            elif delta < 0:
-                model.setData(index, max(0, current - 1), Qt.ItemDataRole.EditRole)
-                return True
+            # 숫자 영역: 값을 바꾸지 않는다. 클릭은 줄 선택, 더블클릭은 직접 입력.
 
         elif event.type() == QEvent.Type.MouseMove:
             pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
@@ -389,7 +374,12 @@ TicketDropdownDelegate = TicketStepperDelegate
 
 
 class CopyButtonDelegate(_PaletteAware, QStyledItemDelegate):
-    """'복사' 버튼처럼 보이는 셀. 실제 위젯은 만들지 않는다."""
+    """'복사' 버튼처럼 보이는 셀. 실제 위젯은 만들지 않는다.
+
+    '✓ 복사완료' 는 **이번 실행에서 실제로 복사한 하객**에만 뜬다. 예전에는 발송 체크를
+    보고 그렸다. 그래서 복사해도 그대로 '복사' 였고, 복사 없이 발송만 체크해도
+    '복사완료' 로 떴다(옆 칸 발송 배지와 같은 값을 다른 말로 보여 준 셈).
+    """
 
     clicked = Signal(QModelIndex)
 
@@ -397,6 +387,10 @@ class CopyButtonDelegate(_PaletteAware, QStyledItemDelegate):
         QStyledItemDelegate.__init__(self, parent)
         _PaletteAware.__init__(self, palette)
         self._hover_row = -1
+        self._copied: set[int] = set()
+
+    def mark_copied(self, guest: object) -> None:
+        self._copied.add(id(guest))
 
     def set_hover_row(self, row: int) -> None:
         self._hover_row = row
@@ -411,22 +405,21 @@ class CopyButtonDelegate(_PaletteAware, QStyledItemDelegate):
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
         guest = index.data(GUEST_ROLE)
         if option.state & QStyle.StateFlag.State_Selected:
-            painter.fillRect(option.rect, QColor("#3b3280"))
+            painter.fillRect(option.rect, option.palette.highlight())
 
-        sent = bool(getattr(guest, "sent_thanks", False))
+        copied = id(guest) in self._copied
         hovered = index.row() == self._hover_row and bool(option.state & QStyle.StateFlag.State_MouseOver)
+        p = self._palette
 
-        if sent:
-            # 복사 및 발송 완료 상태: 또렷하고 정갈한 에메랄드 그린
-            background = QColor("#065f46" if hovered else "#044e39")
-            foreground = QColor("#ffffff" if hovered else "#a7f3d0")
-            border = QColor("#34d399" if hovered else "#10b981")
+        if copied:
+            background = QColor(p.positive_surface)
+            foreground = QColor(p.positive)
+            border = QColor(p.positive if hovered else p.positive_border)
             label = "✓ 복사완료"
         else:
-            # 아직 복사 안 한 상태: 눈에 확 띄는 세련된 인디고 액션 버튼
-            background = QColor("#4f46e5" if hovered else "#4338ca")
+            background = QColor(p.accent_hover if hovered else p.accent_strong)
             foreground = QColor("#ffffff")
-            border = QColor("#818cf8" if hovered else "#6366f1")
+            border = QColor(p.accent if hovered else p.accent_strong)
             label = "📋 복사"
 
         rect = self._button_rect(option.rect)
@@ -497,7 +490,7 @@ class SentBadgeDelegate(_PaletteAware, QStyledItemDelegate):
             return
 
         if option.state & QStyle.StateFlag.State_Selected:
-            painter.fillRect(option.rect, QColor("#3b3280"))
+            painter.fillRect(option.rect, option.palette.highlight())
 
         sent = bool(getattr(guest, "sent_thanks", False))
         hovered = index.row() == self._hover_row and bool(option.state & QStyle.StateFlag.State_MouseOver)
@@ -506,17 +499,16 @@ class SentBadgeDelegate(_PaletteAware, QStyledItemDelegate):
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
+        p = self._palette
         if sent:
-            # 발송 완료: 또렷하고 깔끔한 에메랄드 그린 뱃지
-            bg_color = QColor("#065f46" if hovered else "#044e39")
-            border_color = QColor("#34d399" if hovered else "#10b981")
-            text_color = QColor("#ffffff" if hovered else "#a7f3d0")
+            bg_color = QColor(p.positive_surface)
+            border_color = QColor(p.positive if hovered else p.positive_border)
+            text_color = QColor(p.positive)
             label = "✓ 발송"
         else:
-            # 미발송: 깔끔하고 정돈된 보라 뱃지 버튼
-            bg_color = QColor("#29245e" if hovered else "#1d1947")
-            border_color = QColor("#6a5fd0" if hovered else "#3a3480")
-            text_color = QColor("#ffffff" if hovered else "#d4ccff")
+            bg_color = QColor(p.surface_hover if hovered else p.surface_alt)
+            border_color = QColor(p.border_strong if hovered else p.border)
+            text_color = QColor(p.text if hovered else p.text_muted)
             label = "미발송"
 
         painter.setPen(border_color)

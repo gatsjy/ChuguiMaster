@@ -19,7 +19,7 @@ import logging
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QModelIndex, QObject, Qt, QTimer
+from PySide6.QtCore import QEvent, QModelIndex, QObject, QPoint, Qt, QTimer
 from PySide6.QtGui import (
     QAction,
     QCloseEvent,
@@ -194,6 +194,7 @@ class MainWindow(QMainWindow):
         self._apply_theme()
 
         self._toast = ToastNotification(self)
+        self._place_toast()
         self._apply_toast_palette()
 
         self._model.guestsChanged.connect(self._on_guests_changed)
@@ -264,17 +265,9 @@ class MainWindow(QMainWindow):
         btn_restore.clicked.connect(self._open_restore_dialog)
         self._btn_restore = btn_restore
 
-        btn_help = QPushButton("💡 입력 가이드")
-        btn_help.setObjectName("ghost")
-        btn_help.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_help.setToolTip("어떤 형식으로 적으면 되는지 안내합니다.")
-        btn_help.setAccessibleName("입력 가이드")
-        btn_help.clicked.connect(self._open_help)
-
         layout.addWidget(title)
         layout.addWidget(version)
         layout.addStretch()
-        layout.addWidget(btn_help)
         layout.addWidget(self._btn_fullscreen)
         layout.addWidget(btn_restore)
         layout.addWidget(btn_templates)
@@ -370,7 +363,7 @@ class MainWindow(QMainWindow):
         banner.hide()
 
         layout = QHBoxLayout(banner)
-        layout.setContentsMargins(Space.MD, Space.SM, Space.MD, Space.SM)
+        layout.setContentsMargins(Space.MD, Space.XS, Space.MD, Space.XS)
         layout.setSpacing(Space.SM)
 
         self._banner_label = QLabel()
@@ -408,6 +401,7 @@ class MainWindow(QMainWindow):
         btn_quick_help.setObjectName("ghost")
         btn_quick_help.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_quick_help.setToolTip("어떤 형식으로 적으면 되는지 예시와 함께 확인합니다.")
+        btn_quick_help.setAccessibleName("입력 가이드")
         btn_quick_help.clicked.connect(self._open_help)
         header_row.addWidget(btn_quick_help)
         layout.addLayout(header_row)
@@ -419,8 +413,8 @@ class MainWindow(QMainWindow):
         hint_layout.setSpacing(1)
         for line in (
             "홍길동 10만원 친척      김가족,김친지 30만 이모",
-            "최동료 10만 대2 소1 (또는 식권2 소인1, 어른2 아이1)      박지성 5만원 불참",
-            "엑셀(.xlsx) · CSV 를 끌어다 놓으면 기존 목록에 합쳐집니다.",
+            "최동료 10만 대2 소1      박지성 5만원 불참",
+            "엑셀 · CSV 파일을 끌어다 놓으면 목록에 합쳐집니다.",
         ):
             label = QLabel(line)
             label.setObjectName("hint")
@@ -433,6 +427,9 @@ class MainWindow(QMainWindow):
         self._input.setPlaceholderText("카톡·메모장 명단을 그대로 붙여넣으세요.")
         self._input.setToolTip("자유 형식으로 붙여넣으면 됩니다. 양식을 맞출 필요 없습니다.")
         self._input.setAccessibleName("축의금 명단 입력")
+        # 최소 창 높이(720px)에서도 다른 줄이 눌려 글자가 겹치지 않게, 입력창은 3줄까지 줄어들 수 있다.
+        # 보통 크기에서는 남는 높이를 모두 입력창이 가져가므로 영향이 없다.
+        self._input.setMinimumHeight(70)
         self._input.textChanged.connect(self._on_input_changed)
         self._input.installEventFilter(self)
         self._input.fileDropped.connect(self._load_file)
@@ -489,7 +486,8 @@ class MainWindow(QMainWindow):
         bottom.addWidget(btn_sample)
         bottom.addWidget(btn_clear)
 
-        layout.addWidget(heading)
+        # 제목은 위의 header_row 에 '입력 가이드' 와 한 줄로 이미 들어가 있다.
+        # 여기서 다시 넣으면 제목이 그 줄에서 빠져나와 버튼이 혼자 한 줄을 차지했다.
         layout.addWidget(hint_box)
         layout.addWidget(self._input, 1)
         layout.addWidget(self._preview)
@@ -642,7 +640,7 @@ class MainWindow(QMainWindow):
             Column.NO: 44,
             Column.AMOUNT: 104,
             Column.RELATION: 110,
-            Column.ATTENDANCE: 90,
+            Column.ATTENDANCE: 108,
             Column.ADULT_TICKETS: 62,
             Column.CHILD_TICKETS: 62,
             Column.COPY: 100,
@@ -1038,6 +1036,8 @@ class MainWindow(QMainWindow):
         message = self._model.message_for(source_index.row())
         QApplication.clipboard().setText(message)
         # 복사는 '보냄'이 아니다. 발송 여부는 사용자가 직접 체크한다.
+        self._copy_delegate.mark_copied(guest)
+        self._table.viewport().update()
         self._toast.show_message(f"{guest.name} 인사말 복사됨 · Ctrl+V 로 붙여넣어 발송하세요")
 
     def _selected_source_rows(self) -> list[int]:
@@ -1516,10 +1516,18 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------ 이벤트
 
+    def _place_toast(self) -> None:
+        """알림을 '엑셀로 내보내기' 줄 바로 위에 띄운다. 그 버튼을 가리지 않게."""
+        if not hasattr(self, "_btn_export"):
+            return
+        top_of_export = self._btn_export.mapTo(self, QPoint(0, 0)).y()
+        self._toast.set_bottom_margin(self.height() - top_of_export + Space.SM)
+        self._toast.reposition()
+
     def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
         super().resizeEvent(event)
         if hasattr(self, "_toast"):
-            self._toast.reposition()
+            self._place_toast()
         self._schedule_config_save()
 
     def changeEvent(self, event) -> None:  # noqa: N802
