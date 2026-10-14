@@ -92,7 +92,7 @@ def test_ticket_stepper_buttons(window, qt_app):
     # 소인 ▲ 버튼 클릭
     idx_child = window._proxy.index(0, int(Column.CHILD_TICKETS))
     rect_child = table.visualRect(idx_child)
-    up_child, down_child = delegate._button_rects(rect_child)
+    up_child, _down_child = delegate._button_rects(rect_child)
 
     QTest.mouseClick(table.viewport(), Qt.MouseButton.LeftButton, pos=up_child.center())
     qt_app.processEvents()

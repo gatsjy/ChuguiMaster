@@ -77,7 +77,6 @@ from chugui.ui.delegates import (
     CopyButtonDelegate,
     RelationBadgeDelegate,
     SentBadgeDelegate,
-    TicketSpinDelegate,
     TicketStepperDelegate,
     install_hover_tracking,
 )

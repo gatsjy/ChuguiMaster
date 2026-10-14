@@ -551,9 +551,10 @@ def install_hover_tracking(view: QAbstractItemView, delegate, column: int) -> No
 
     def _on_entered(index: QModelIndex) -> None:
         row = index.row() if index.column() == column else -1
-        if hasattr(delegate, "set_hover_row"):
-            if not hasattr(delegate, "_hover_row") or row != delegate._hover_row:
-                delegate.set_hover_row(row)
-                view.viewport().update()
+        if hasattr(delegate, "set_hover_row") and (
+            not hasattr(delegate, "_hover_row") or row != delegate._hover_row
+        ):
+            delegate.set_hover_row(row)
+            view.viewport().update()
 
     view.entered.connect(_on_entered)
