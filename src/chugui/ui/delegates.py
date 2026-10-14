@@ -110,7 +110,7 @@ class RelationBadgeDelegate(_ClickOpensList, _PaletteAware, QStyledItemDelegate)
             return
 
         if option.state & QStyle.StateFlag.State_Selected:
-            painter.fillRect(option.rect, option.palette.highlight())
+            painter.fillRect(option.rect, QColor("#3b3280"))
 
         colors = badge_colors(self._palette, guest.relation)
         text = guest.relation.value
@@ -171,6 +171,8 @@ class AttendanceDelegate(_ClickOpensList, QStyledItemDelegate):
     """참석 / 불참(송금) 선택. 관계와 같은 방식(▼ 표시 · 한 번 클릭)으로 연다."""
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
+        if option.state & QStyle.StateFlag.State_Selected:
+            painter.fillRect(option.rect, QColor("#3b3280"))
         super().paint(painter, option, index)
         color = QColor(option.palette.text().color())
         if not option.state & QStyle.StateFlag.State_MouseOver:
@@ -228,7 +230,7 @@ class TicketStepperDelegate(_PaletteAware, QStyledItemDelegate):
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
         if option.state & QStyle.StateFlag.State_Selected:
-            painter.fillRect(option.rect, option.palette.highlight())
+            painter.fillRect(option.rect, QColor("#3b3280"))
 
         val = index.data(Qt.ItemDataRole.EditRole)
         count = int(val) if val is not None else 0
@@ -264,7 +266,7 @@ class TicketStepperDelegate(_PaletteAware, QStyledItemDelegate):
         is_down_hover = is_hovered and (self._hover_btn == -1)
 
         border_col = QColor(self._palette.border_strong if is_hovered else self._palette.border)
-        bg_col = QColor(self._palette.surface_alt)
+        bg_col = QColor(self._palette.surface_hover if is_hovered else self._palette.surface_alt)
         painter.setPen(border_col)
         painter.setBrush(bg_col)
         painter.drawRoundedRect(container, 4, 4)
@@ -272,17 +274,15 @@ class TicketStepperDelegate(_PaletteAware, QStyledItemDelegate):
         # 호버 시 개별 버튼 은은한 하이라이트
         if is_up_hover:
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(99, 102, 241, 140))
+            painter.setBrush(QColor("#4c3fb5"))
             painter.drawRoundedRect(up_rect, 4, 4)
         elif is_down_hover:
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(99, 102, 241, 140))
+            painter.setBrush(QColor("#4c3fb5"))
             painter.drawRoundedRect(down_rect, 4, 4)
 
-        # 중간 구분선
-        painter.setPen(border_col)
-        mid_y = up_rect.bottom()
-        painter.drawLine(container.left() + 2, mid_y, container.right() - 2, mid_y)
+        # 중간 구분선 (블러 없이 선명하게 그리기)
+        painter.fillRect(container.left() + 2, up_rect.bottom(), container.width() - 4, 1, border_col)
 
         # 3. 정밀 벡터 화살표 (폰트 깨짐 없는 깔끔한 렌더링)
         cx = container.center().x()
@@ -402,29 +402,31 @@ class CopyButtonDelegate(_PaletteAware, QStyledItemDelegate):
         self._hover_row = row
 
     def _button_rect(self, option_rect: QRect) -> QRect:
-        rect = QRect(option_rect)
-        rect.adjust(5, 5, -5, -5)
-        return rect
+        btn_h = 26
+        btn_w = min(98, option_rect.width() - 8)
+        x = option_rect.left() + (option_rect.width() - btn_w) // 2
+        y = option_rect.top() + (option_rect.height() - btn_h) // 2
+        return QRect(x, y, btn_w, btn_h)
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
         guest = index.data(GUEST_ROLE)
         if option.state & QStyle.StateFlag.State_Selected:
-            painter.fillRect(option.rect, option.palette.highlight())
+            painter.fillRect(option.rect, QColor("#3b3280"))
 
         sent = bool(getattr(guest, "sent_thanks", False))
         hovered = index.row() == self._hover_row and bool(option.state & QStyle.StateFlag.State_MouseOver)
 
         if sent:
-            # 복사 및 발송 완료 상태: 정갈한 에메랄드 그린
-            background = QColor("#047857" if hovered else "#064e3b")
-            foreground = QColor("#ffffff" if hovered else "#6ee7b7")
-            border = QColor(52, 211, 153, 200 if hovered else 120)
+            # 복사 및 발송 완료 상태: 또렷하고 정갈한 에메랄드 그린
+            background = QColor("#065f46" if hovered else "#044e39")
+            foreground = QColor("#ffffff" if hovered else "#a7f3d0")
+            border = QColor("#34d399" if hovered else "#10b981")
             label = "✓ 복사완료"
         else:
             # 아직 복사 안 한 상태: 눈에 확 띄는 세련된 인디고 액션 버튼
             background = QColor("#4f46e5" if hovered else "#4338ca")
             foreground = QColor("#ffffff")
-            border = QColor(165, 180, 252, 180 if hovered else 90)
+            border = QColor("#818cf8" if hovered else "#6366f1")
             label = "📋 복사"
 
         rect = self._button_rect(option.rect)
@@ -483,9 +485,11 @@ class SentBadgeDelegate(_PaletteAware, QStyledItemDelegate):
         self._hover_row = row
 
     def _button_rect(self, option_rect: QRect) -> QRect:
-        rect = QRect(option_rect)
-        rect.adjust(4, 5, -4, -5)
-        return rect
+        btn_h = 26
+        btn_w = min(72, option_rect.width() - 6)
+        x = option_rect.left() + (option_rect.width() - btn_w) // 2
+        y = option_rect.top() + (option_rect.height() - btn_h) // 2
+        return QRect(x, y, btn_w, btn_h)
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
         guest = index.data(GUEST_ROLE)
@@ -493,7 +497,7 @@ class SentBadgeDelegate(_PaletteAware, QStyledItemDelegate):
             return
 
         if option.state & QStyle.StateFlag.State_Selected:
-            painter.fillRect(option.rect, option.palette.highlight())
+            painter.fillRect(option.rect, QColor("#3b3280"))
 
         sent = bool(getattr(guest, "sent_thanks", False))
         hovered = index.row() == self._hover_row and bool(option.state & QStyle.StateFlag.State_MouseOver)
@@ -503,16 +507,16 @@ class SentBadgeDelegate(_PaletteAware, QStyledItemDelegate):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
         if sent:
-            # 발송 완료: 우아한 에메랄드 그린 뱃지
-            bg_color = QColor(4, 120, 87, 220 if hovered else 180)
-            border_color = QColor(52, 211, 153, 220 if hovered else 120)
-            text_color = QColor("#ffffff" if hovered else "#6ee7b7")
+            # 발송 완료: 또렷하고 깔끔한 에메랄드 그린 뱃지
+            bg_color = QColor("#065f46" if hovered else "#044e39")
+            border_color = QColor("#34d399" if hovered else "#10b981")
+            text_color = QColor("#ffffff" if hovered else "#a7f3d0")
             label = "✓ 발송"
         else:
-            # 미발송: 깔끔한 서브틀 뱃지 버튼
-            bg_color = QColor(41, 36, 94, 220 if hovered else 160)
-            border_color = QColor(169, 184, 255, 180 if hovered else 90)
-            text_color = QColor("#ffffff" if hovered else "#a9a0e0")
+            # 미발송: 깔끔하고 정돈된 보라 뱃지 버튼
+            bg_color = QColor("#29245e" if hovered else "#1d1947")
+            border_color = QColor("#6a5fd0" if hovered else "#3a3480")
+            text_color = QColor("#ffffff" if hovered else "#d4ccff")
             label = "미발송"
 
         painter.setPen(border_color)

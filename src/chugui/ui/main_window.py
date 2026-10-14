@@ -227,7 +227,7 @@ class MainWindow(QMainWindow):
         splitter.addWidget(self._build_table_panel())
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 7)
-        splitter.setSizes([420, 900])
+        splitter.setSizes([340, 820])
         self._splitter = splitter
         root.addWidget(splitter, 1)
 
@@ -546,6 +546,9 @@ class MainWindow(QMainWindow):
         header.addWidget(self._relation_filter)
 
         self._table = self._build_table()
+        self._chk_review.toggled.connect(
+            lambda checked: self._table.setColumnHidden(int(Column.REVIEW), not checked)
+        )
         self._empty_state = EmptyState("📋", *_EMPTY_NO_DATA)
 
         self._table_stack = QStackedWidget()
@@ -633,28 +636,33 @@ class MainWindow(QMainWindow):
         install_hover_tracking(table, self._child_ticket_delegate, int(Column.CHILD_TICKETS))
 
         header = table.horizontalHeader()
-        header.setStretchLastSection(True)
+        header.setStretchLastSection(False)
         header.setHighlightSections(False)
         header.setSortIndicatorShown(True)
         fixed_widths: dict[Column, int] = {
-            Column.NO: 48,
-            Column.AMOUNT: 116,
-            Column.RELATION: 118,
-            Column.ATTENDANCE: 118,
-            Column.ADULT_TICKETS: 68,
-            Column.CHILD_TICKETS: 68,
-            Column.COPY: 106,
-            Column.SENT: 74,
+            Column.NO: 44,
+            Column.AMOUNT: 104,
+            Column.RELATION: 110,
+            Column.ATTENDANCE: 90,
+            Column.ADULT_TICKETS: 62,
+            Column.CHILD_TICKETS: 62,
+            Column.COPY: 100,
+            Column.SENT: 76,
         }
         for column in Column:
             if column in fixed_widths:
                 header.setSectionResizeMode(int(column), QHeaderView.ResizeMode.Fixed)
                 table.setColumnWidth(int(column), fixed_widths[column])
-            elif column in (Column.NAME, Column.REVIEW):
+            elif column is Column.NAME:
+                header.setSectionResizeMode(int(column), QHeaderView.ResizeMode.Stretch)
+            elif column is Column.REVIEW:
                 header.setSectionResizeMode(int(column), QHeaderView.ResizeMode.Interactive)
-                table.setColumnWidth(int(column), 148 if column is Column.NAME else 176)
+                table.setColumnWidth(int(column), 160)
             else:
                 header.setSectionResizeMode(int(column), QHeaderView.ResizeMode.Stretch)
+
+        table.setColumnHidden(int(Column.REVIEW), True)
+        table.setColumnHidden(int(Column.RAW), True)
         return table
 
     def _build_shortcuts(self) -> None:

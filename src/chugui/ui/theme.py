@@ -424,16 +424,27 @@ def _base_stylesheet(p: Palette, r_sm: int, r_md: int, bw: int) -> str:
         alternate-background-color: {p.surface_alt};
         border: 1px solid {p.border};
         border-radius: {r_md}px;
-        gridline-color: {p.grid};
+        gridline-color: transparent;
         font-size: {FontSize.BODY}px;
         color: {p.text};
-        selection-background-color: {p.selection};
-        selection-color: {p.text};
+        selection-background-color: #3b3280;
+        selection-color: #ffffff;
         outline: none;
     }}
-    QTableView::item {{ padding: {Space.XS}px {Space.SM}px; border: none; }}
-    QTableView::item:hover {{ background-color: {p.surface_hover}; }}
-    QTableView::item:focus {{ border: 1px solid {p.focus_ring}; }}
+    QTableView::item {{
+        padding: {Space.XS}px {Space.SM}px;
+        border: none;
+        outline: none;
+    }}
+    QTableView::item:hover:!selected {{ background-color: {p.surface_hover}; }}
+    QTableView::item:selected {{
+        background-color: #3b3280;
+        color: #ffffff;
+    }}
+    QTableView::item:focus {{
+        border: none;
+        outline: none;
+    }}
     QHeaderView::section {{
         background-color: {p.surface_alt};
         font-size: {FontSize.SMALL}px;
