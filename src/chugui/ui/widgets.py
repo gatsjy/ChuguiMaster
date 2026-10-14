@@ -52,7 +52,7 @@ class ToastNotification(QFrame):
         layout.addWidget(self._action)
 
         self._action_callback: Callable[[], None] | None = None
-        self._bottom_margin = 48
+        self._bottom_margin: Callable[[], int] = lambda: 48
 
         self._opacity = QGraphicsOpacityEffect(self)
         self._opacity.setOpacity(0.0)
@@ -133,9 +133,13 @@ class ToastNotification(QFrame):
         self._animation.start()
         self._timer.start(max(600, duration_ms))
 
-    def set_bottom_margin(self, pixels: int) -> None:
-        """창 아래에서 띄울 거리. 맨 아래 버튼 줄을 가리지 않게 창이 알려 준다."""
-        self._bottom_margin = max(8, pixels)
+    def set_bottom_margin(self, provider: Callable[[], int]) -> None:
+        """창 아래에서 띄울 거리를 **띄울 때마다** 묻는 함수.
+
+        값으로 한 번 받아 두면, 창이 다 배치되기 전(기동 직후)에 잰 값이 남아
+        알림이 창 맨 위에 떴다. 맨 아래 버튼 줄을 가리지 않게 창이 알려 준다.
+        """
+        self._bottom_margin = provider
 
     def reposition(self) -> None:
         """부모 크기가 바뀌어도 하단 중앙을 유지한다. 부모 밖으로 나가지 않는다."""
@@ -144,7 +148,7 @@ class ToastNotification(QFrame):
             return
         rect = parent.rect()
         x = max(0, min(rect.width() - self.width(), (rect.width() - self.width()) // 2))
-        y = max(0, rect.height() - self.height() - self._bottom_margin)
+        y = max(0, rect.height() - self.height() - max(8, self._bottom_margin()))
         self.move(QPoint(x, y))
 
     def _start_fade_out(self) -> None:

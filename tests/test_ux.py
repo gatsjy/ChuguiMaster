@@ -427,6 +427,23 @@ class TestLayoutRobustness:
         guides = [b for b in window.findChildren(QPushButton) if "입력 가이드" in b.text()]
         assert len(guides) == 1
 
+    def test_first_toast_after_startup_sits_above_export_row(self, qt_app):
+        """기동 직후 첫 알림이 창 맨 위에 뜨던 문제(배치 전에 잰 위치를 계속 썼다)."""
+        from chugui.ui.main_window import MainWindow
+
+        win = MainWindow()
+        win.resize(1360, 880)
+        win.show()
+        qt_app.processEvents()
+        try:
+            win._toast.show_message("첫 알림")
+            qt_app.processEvents()
+            export_top = win._btn_export.mapTo(win, win._btn_export.rect().topLeft()).y()
+            assert win._toast.geometry().bottom() < export_top
+            assert win._toast.geometry().top() > win.height() // 2
+        finally:
+            win.close()
+
     def test_toast_does_not_cover_export_button(self, loaded_window, qt_app):
         loaded_window._toast.show_message("테스트 알림")
         qt_app.processEvents()

@@ -1093,28 +1093,47 @@ class MainWindow(QMainWindow):
         elif chosen is act_zero:
             self._set_tickets_bulk(rows, adult=0, child=0)
 
-    def _set_tickets_bulk(self, rows: list[int], adult: int, child: int) -> None:
-        self._undo_stack.beginMacro("식권 일괄 변경")
+    def _apply_tickets_bulk(self, rows: list[int], label: str, target) -> None:
+        """선택한 여러 줄의 식권을 한 번에 바꾼다. ``target(guest) -> (대인, 소인)``.
+
+        * **불참 하객은 건너뛴다.** 오지 않은 사람에게 식권을 주면 식대가 그만큼 잘못 차감된다.
+          (예전에는 불참 줄이 섞인 채 '대인 2장' 을 고르면 불참 하객에게도 2장이 들어갔다.)
+        * 실제로 바뀌는 줄만 묶어 되돌리기 한 번으로 돌아가게 한다. 바뀌는 것이 없으면
+          되돌리기 항목을 남기지 않는다(Ctrl+Z 를 눌렀는데 아무 일도 안 일어나는 일을 막는다).
+        """
+        changes: list[tuple[int, int, int]] = []
+        skipped_absent = 0
+        for row in rows:
+            guest = self._model.guest_at(row)
+            if guest is None:
+                continue
+            if not guest.is_present:
+                skipped_absent += 1
+                continue
+            adult, child = target(guest)
+            if (adult, child) != (guest.adult_tickets, guest.child_tickets):
+                changes.append((row, adult, child))
+
+        note = f" · 불참 {skipped_absent}건 제외" if skipped_absent else ""
+        if not changes:
+            self._toast.show_message(f"바뀐 식권이 없습니다{note}")
+            return
+        self._undo_stack.beginMacro(label)
         try:
-            for row in rows:
+            for row, adult, child in changes:
                 self._model.setData(self._model.index(row, Column.ADULT_TICKETS), adult)
                 self._model.setData(self._model.index(row, Column.CHILD_TICKETS), child)
         finally:
             self._undo_stack.endMacro()
-        self._toast.show_message(f"{len(rows)}건의 식권을 대인 {adult}장, 소인 {child}장으로 변경했습니다.")
+        self._toast.show_message(f"{len(changes)}건 {label}{note} · Ctrl+Z 로 되돌리기")
+
+    def _set_tickets_bulk(self, rows: list[int], adult: int, child: int) -> None:
+        self._apply_tickets_bulk(rows, f"식권 대인 {adult}장 · 소인 {child}장", lambda _guest: (adult, child))
 
     def _add_child_ticket_bulk(self, rows: list[int]) -> None:
-        self._undo_stack.beginMacro("소인 식권 추가")
-        try:
-            for row in rows:
-                guest = self._model.guest_at(row)
-                if guest is not None:
-                    self._model.setData(
-                        self._model.index(row, Column.CHILD_TICKETS), guest.child_tickets + 1
-                    )
-        finally:
-            self._undo_stack.endMacro()
-        self._toast.show_message(f"{len(rows)}건에 소인 식권 1장을 추가했습니다.")
+        self._apply_tickets_bulk(
+            rows, "소인 식권 1장 추가", lambda guest: (guest.adult_tickets, guest.child_tickets + 1)
+        )
 
     def _delete_selected_rows(self) -> None:
         rows = self._selected_source_rows()
@@ -1124,8 +1143,13 @@ class MainWindow(QMainWindow):
     def _delete_rows(self, rows: list[int]) -> None:
         """줄을 지운다. 확인 창 대신 곧바로 되돌릴 수 있게 한다(토스트 · Ctrl+Z · 시점)."""
         names = [self._model.guests[row].name for row in rows]
+        # 지운 자리의 줄을 다시 선택해 둔다. Delete 를 연달아 눌러 정리할 수 있게(탐색기 · 엑셀과 같다).
+        visible = [self._proxy.mapFromSource(self._model.index(row, 0)).row() for row in rows]
+        anchor = min((row for row in visible if row >= 0), default=0)
         self._begin_destructive("줄 삭제 전")
         self._model.remove_rows(rows)
+        if self._proxy.rowCount():
+            self._table.selectRow(min(anchor, self._proxy.rowCount() - 1))
         label = names[0] if len(names) == 1 else f"{names[0]} 외 {len(names) - 1}명"
         self._offer_undo(f"{label} 삭제 · Ctrl+Z 로도 되돌릴 수 있습니다")
 
@@ -1520,9 +1544,14 @@ class MainWindow(QMainWindow):
         """알림을 '엑셀로 내보내기' 줄 바로 위에 띄운다. 그 버튼을 가리지 않게."""
         if not hasattr(self, "_btn_export"):
             return
-        top_of_export = self._btn_export.mapTo(self, QPoint(0, 0)).y()
-        self._toast.set_bottom_margin(self.height() - top_of_export + Space.SM)
+        self._toast.set_bottom_margin(self._toast_bottom_margin)
         self._toast.reposition()
+
+    def _toast_bottom_margin(self) -> int:
+        top_of_export = self._btn_export.mapTo(self, QPoint(0, 0)).y()
+        if top_of_export <= 0:  # 아직 배치 전
+            return 48
+        return self.height() - top_of_export + Space.SM
 
     def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
         super().resizeEvent(event)
