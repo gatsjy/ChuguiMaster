@@ -56,8 +56,8 @@ class TestSyncRules:
         assert not result.removed
 
     def test_duplicate_lines_are_matched_one_to_one(self):
-        existing = parse_text("한주안 10만원\n한주안 10만원")
-        result = sync_with_text(existing, parse_text("한주안 10만원"), ["한주안 10만원", "한주안 10만원"])
+        existing = parse_text("홍길동 10만원\n홍길동 10만원")
+        result = sync_with_text(existing, parse_text("홍길동 10만원"), ["홍길동 10만원", "홍길동 10만원"])
         assert len(result.guests) == 1 and len(result.removed) == 1
 
     def test_no_change_is_reported(self):

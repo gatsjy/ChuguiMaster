@@ -50,23 +50,53 @@ ADULT_TICKET_RE = re.compile(
     _BOUNDARY + r"(?:" + _EXPLICIT_ADULT_WORDS + r"|" + _GENERIC_TICKET_WORDS + r")" + _SEP + _COUNT + _SUFFIX
 )
 EXPLICIT_ADULT_RE = re.compile(_BOUNDARY + _EXPLICIT_ADULT_WORDS + _SEP + _COUNT + _SUFFIX)
-GENERIC_TICKET_RE = re.compile(_BOUNDARY + _GENERIC_TICKET_WORDS + _SEP + _COUNT + _SUFFIX)
+#: '총식권3' 처럼 '총' 이 붙어 쓰인 경우도 식권 표기로 받는다.
+_GENERIC_BOUNDARY = r"(?:(?<![가-힣])|(?<=[만천억원장명총]))"
+GENERIC_TICKET_RE = re.compile(_GENERIC_BOUNDARY + _GENERIC_TICKET_WORDS + _SEP + _COUNT + _SUFFIX)
 CHILD_TICKET_RE = re.compile(_BOUNDARY + _CHILD_WORDS + _SEP + _COUNT + _SUFFIX)
 
 #: 금액 파서가 제거할 식권 표기 전체.
+#: 식권으로 **읽는** 표기와 금액에서 **지우는** 표기가 어긋나면 그 숫자가 금액에 붙는다
+#: ('20만 총식권3' → 200,003). 그래서 읽는 쪽과 같은 경계를 쓴다.
 ANY_TICKET_RE = re.compile(
-    _BOUNDARY
+    r"(?:"
+    + _BOUNDARY
     + r"(?:"
     + _EXPLICIT_ADULT_WORDS
     + r"|"
-    + _GENERIC_TICKET_WORDS
-    + r"|"
     + _CHILD_WORDS
+    + r")|"
+    + _GENERIC_BOUNDARY
+    + _GENERIC_TICKET_WORDS
     + r")"
     + _SEP
     + _COUNT
     + _SUFFIX
 )
+
+
+_TOTAL_PREFIX_RE = re.compile(r"총[  　]*$")
+_OPEN_PAREN_RE = re.compile(r"[  　]*[(（]")
+
+
+def _is_total_notation(text: str, generic: re.Match[str], child: re.Match[str]) -> bool:
+    """'식권 N' 이 대인 수가 아니라 **총합**(소인 포함)으로 쓰였는가.
+
+    판단은 **표기 바로 옆**에서만 한다. 예전에는 줄 어딘가에 '(' 나 '총' 이 있기만 해도
+    총합으로 봤다. 그래서 같은 '식권3 소인1' 이 별칭 '김재경(조외순)', 소속 '(주)넥스트로',
+    '총무', '총동문회' 가 붙으면 대인 3장이 2장으로 바뀌어 식대가 조용히 덜 잡혔다.
+
+    * '총 식권 3 소인 1' · '총식권3 소인1' — '총' 이 식권 바로 앞에 붙어 있다.
+    * '식권3(소1)' · '식권 3장 (소인 1장)' — 소인이 식권 바로 뒤 괄호 안에 있다.
+    """
+    if _TOTAL_PREFIX_RE.search(text[: generic.start()]):
+        return True
+    paren = _OPEN_PAREN_RE.match(text, generic.end())
+    if paren is None:
+        return False
+    closes = [i for i in (text.find(")", paren.end()), text.find("）", paren.end())) if i != -1]
+    close_at = min(closes) if closes else len(text)
+    return paren.end() <= child.start() < close_at
 
 
 def parse_ticket_counts(text: str) -> tuple[int | None, int | None]:
@@ -82,8 +112,7 @@ def parse_ticket_counts(text: str) -> tuple[int | None, int | None]:
         adult = int(explicit_adult_m.group(1))
     elif generic_m:
         generic_count = int(generic_m.group(1))
-        # 식권 3장(소인 1장) 또는 총식권 3 소인 1 처럼 총합과 소인이 함께 표기된 경우 대인 자동 차감
-        if ("총" in cleaned or "(" in cleaned or "（" in cleaned) and child and generic_count > child:
+        if child_m and child and generic_count > child and _is_total_notation(cleaned, generic_m, child_m):
             adult = generic_count - child
         else:
             adult = generic_count

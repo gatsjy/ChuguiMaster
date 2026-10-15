@@ -36,33 +36,71 @@ def select_rows(window, rows):
         model.select(window._proxy.index(row, 0), model.SelectionFlag.Select | model.SelectionFlag.Rows)
 
 
+def _close_all_popups() -> None:
+    while (popup := QApplication.activePopupWidget()) is not None:
+        popup.close()
+
+
 def open_menu(window, row, choose=None, path=()):
-    """줄을 우클릭해 메뉴를 열고 choose 를 고른다. 메뉴 항목 목록을 돌려준다."""
+    """줄을 우클릭해 메뉴를 열고 choose 를 고른다. 메뉴 항목 목록을 돌려준다.
+
+    ``menu.exec()`` 는 메뉴가 닫혀야 돌아온다. 그래서 고르는 쪽(타이머 안)에서
+    무엇이든 실패하면 **테스트가 실패하는 게 아니라 영원히 멈춘다** — 예외가 Qt 타이머
+    안에서 삼켜지기 때문이다. 실패하면 반드시 메뉴를 닫고, 그 사유를 테스트로 돌려 보낸다.
+    """
     seen: dict = {}
 
     def handle():
-        menu = QApplication.activePopupWidget()
-        if menu is None:
-            return
-        seen["items"] = [action.text() for action in menu.actions() if action.text()]
-        seen["enabled"] = {action.text(): action.isEnabled() for action in menu.actions() if action.text()}
-        if choose is None:
-            menu.close()
-            return
-        target = menu
-        for step in path:
-            action = next(a for a in target.actions() if a.text() == step)
+        try:
+            menu = QApplication.activePopupWidget()
+            if menu is None:
+                seen["error"] = "우클릭 메뉴가 열리지 않았습니다"
+                return
+            seen["items"] = [action.text() for action in menu.actions() if action.text()]
+            seen["enabled"] = {
+                action.text(): action.isEnabled() for action in menu.actions() if action.text()
+            }
+            if choose is None:
+                menu.close()
+                return
+            target = menu
+            for step in path:
+                action = next(a for a in target.actions() if a.text() == step)
+                target.setActiveAction(action)
+                QTest.keyClick(target, Qt.Key.Key_Right)
+                QTest.qWait(100)
+                # action.menu() 가 돌려주는 래퍼는 이미 해제된 C++ 객체를 가리킬 수 있다
+                # (오프스크린에서 재현). 사람이 보는 것 — 지금 열려 있는 팝업 — 을 잡는다.
+                submenu = QApplication.activePopupWidget()
+                if submenu is None or submenu is target:
+                    seen["error"] = f"하위 메뉴 '{step}' 가 열리지 않았습니다"
+                    return
+                target = submenu
+            action = next(a for a in target.actions() if a.text() == choose)
             target.setActiveAction(action)
-            QTest.keyClick(target, Qt.Key.Key_Right)
-            QTest.qWait(100)
-            target = action.menu()
-        action = next(a for a in target.actions() if a.text() == choose)
-        target.setActiveAction(action)
-        QTest.keyClick(target, Qt.Key.Key_Return)
+            QTest.keyClick(target, Qt.Key.Key_Return)
+        except Exception as exc:  # 타이머 안의 예외는 삼켜진다. 테스트로 넘겨야 한다
+            seen["error"] = f"{type(exc).__name__}: {exc}"
+        finally:
+            if "error" in seen:
+                _close_all_popups()
 
+    def give_up():
+        seen.setdefault("error", "메뉴가 5초 안에 닫히지 않았습니다")
+        _close_all_popups()
+
+    # 무엇에도 걸리지 않은 경우를 위한 마지막 안전장치. 멈추느니 실패한다.
+    watchdog = QTimer()
+    watchdog.setSingleShot(True)
+    watchdog.timeout.connect(give_up)
+    watchdog.start(5000)
     QTimer.singleShot(150, handle)
     position = window._table.visualRect(window._proxy.index(row, int(Column.NAME))).center()
-    window._show_table_menu(position)
+    try:
+        window._show_table_menu(position)
+    finally:
+        watchdog.stop()  # 다음 메뉴를 엉뚱하게 닫지 않도록
+    assert "error" not in seen, seen["error"]
     return seen
 
 

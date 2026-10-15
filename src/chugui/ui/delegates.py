@@ -12,6 +12,8 @@
 
 from __future__ import annotations
 
+import weakref
+
 from PySide6.QtCore import QEvent, QModelIndex, QPoint, QPointF, QRect, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPolygonF
 from PySide6.QtWidgets import (
@@ -387,10 +389,20 @@ class CopyButtonDelegate(_PaletteAware, QStyledItemDelegate):
         QStyledItemDelegate.__init__(self, parent)
         _PaletteAware.__init__(self, palette)
         self._hover_row = -1
-        self._copied: set[int] = set()
+        # id(하객) → 그 하객을 가리키는 약한 참조.
+        # id 만 들고 있으면 안 된다. 목록을 바꿔 옛 하객 객체가 해제되면 파이썬이 그 메모리
+        # 주소(= id)를 새 하객에게 다시 준다. 그러면 복사한 적 없는 새 하객이 '✓ 복사완료' 로
+        # 뜬다(실측: 명단 교체 5회 중 3회, 1~2명씩). 하객이 해제되면 그 표시도 함께 지운다.
+        # Guest 는 eq 가 있는 dataclass 라 해시가 없어 WeakSet 을 쓸 수 없다.
+        self._copied: dict[int, weakref.ref] = {}
 
     def mark_copied(self, guest: object) -> None:
-        self._copied.add(id(guest))
+        key = id(guest)
+        self._copied[key] = weakref.ref(guest, lambda _ref, key=key: self._copied.pop(key, None))
+
+    def is_copied(self, guest: object) -> bool:
+        ref = self._copied.get(id(guest))
+        return ref is not None and ref() is guest
 
     def set_hover_row(self, row: int) -> None:
         self._hover_row = row
@@ -407,7 +419,7 @@ class CopyButtonDelegate(_PaletteAware, QStyledItemDelegate):
         if option.state & QStyle.StateFlag.State_Selected:
             painter.fillRect(option.rect, option.palette.highlight())
 
-        copied = id(guest) in self._copied
+        copied = self.is_copied(guest)
         hovered = index.row() == self._hover_row and bool(option.state & QStyle.StateFlag.State_MouseOver)
         p = self._palette
 

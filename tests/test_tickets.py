@@ -105,6 +105,39 @@ class TestRealTicketNotationStillWorks:
         guest = parse_line(text)
         assert (guest.adult_tickets, guest.child_tickets) == (expected_adult, expected_child)
 
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "김선배 50만 식권3 소인1",
+            "김재경(조외순) 50만 식권3 소인1",
+            "이상민 5만 (주)넥스트로 식권3 소인1",
+            "이상민\t50,000\t(주)넥스트로 식권3 소인1",
+            "홍길동 10만 총무 식권3 소인1",
+            "홍길동 10만 총동문회 식권3 소인1",
+            "김부장 20만 식권3 (메모) 소인1",
+        ],
+    )
+    def test_unrelated_paren_or_chong_does_not_turn_count_into_total(self, line):
+        """'(' 나 '총' 이 줄 어딘가에 있기만 해도 식권 수를 총합으로 보고 소인을 뺐다.
+
+        별칭 · (주) · 총무 · 총동문회 가 붙은 줄만 대인 3장이 2장이 되어 식대가 덜 잡혔다.
+        """
+        guest = parse_line(line)
+        assert (guest.adult_tickets, guest.child_tickets) == (3, 1)
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "강부장 20만 식권3(소1)",
+            "조팀장 20만 식권 3장 (소인 1장)",
+            "김부장 20만 총 식권 3 소인 1",
+            "김부장 20만 총식권3 소인1",
+        ],
+    )
+    def test_total_notation_next_to_the_count_still_subtracts(self, line):
+        guest = parse_line(line)
+        assert (guest.amount, guest.adult_tickets, guest.child_tickets) == (200_000, 2, 1)
+
     def test_amount_is_not_eaten_by_ticket_strip(self):
         assert extract_amount("최동료 10만 식권2 소인1")[0] == 100_000
         assert extract_amount("김친구 10만 대1 소1")[0] == 100_000

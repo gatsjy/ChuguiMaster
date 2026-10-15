@@ -18,7 +18,7 @@ def window(qt_app):
     win.resize(1360, 880)
     win.show()
     QTest.qWait(200)
-    win._model.set_guests(parse_text("한주안 10만원\n이영희 3만원"))
+    win._model.set_guests(parse_text("홍길동 10만원\n이영희 3만원"))
     qt_app.processEvents()
     yield win
     win.close()
@@ -78,6 +78,33 @@ class TestCopyBadge:
         window._model.mark_sent(0, True)
         qt_app.processEvents()
         assert self._label_color(window, 0) == before
+
+    def test_copied_mark_is_dropped_when_the_guest_is_freed(self, window, qt_app):
+        """id 만 기억하면, 목록을 바꿨을 때 파이썬이 같은 id 를 새 하객에게 다시 준다.
+
+        실측: 명단 교체 5회 중 3회, 복사한 적 없는 새 하객 1~2명이 '✓ 복사완료' 로 떴다.
+        재사용 자체는 메모리 배치에 달려 있어 결정적으로 재현할 수 없으므로,
+        그 전제(해제된 하객의 표시가 남아 있지 않다)를 직접 검사한다.
+        """
+        import gc
+
+        delegate = window._copy_delegate
+        window._on_copy_clicked(window._proxy.index(0, int(Column.COPY)))
+        copied_id = id(window._model.guests[0])
+        assert copied_id in delegate._copied
+
+        window._model.set_guests(parse_text("새하객 5만원"))
+        gc.collect()
+        assert copied_id not in delegate._copied
+
+    def test_same_id_different_guest_is_not_copied(self, window, qt_app):
+        """기록과 id 가 같아도 다른 객체면 복사한 하객이 아니다."""
+        import weakref
+
+        delegate = window._copy_delegate
+        original, impostor = window._model.guests[0], window._model.guests[1]
+        delegate._copied[id(impostor)] = weakref.ref(original)  # id 재사용 상황을 흉내 낸다
+        assert not delegate.is_copied(impostor)
 
 
 def test_selected_row_is_one_colour(window, qt_app):

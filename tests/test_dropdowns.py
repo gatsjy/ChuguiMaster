@@ -20,7 +20,7 @@ def window(qt_app):
     win = MainWindow()
     win.show()
     QTest.qWait(200)
-    win._model.set_guests(parse_text("한주안 10만원\n이영희 3만원"))
+    win._model.set_guests(parse_text("홍길동 10만원\n이영희 3만원"))
     qt_app.processEvents()
     yield win
     win.close()
@@ -65,7 +65,7 @@ def test_pick_is_undoable(window, qt_app):
 def test_ticket_stepper_buttons(window, qt_app):
     """대인/소인 위아래(▲/▼) 버튼 클릭으로 숫자가 증감한다."""
     table = window._table
-    # 0번 하객: 한주안 10만원 (초기 대인 1장, 소인 0장)
+    # 0번 하객: 홍길동 10만원 (초기 대인 1장, 소인 0장)
     assert window._model.guests[0].adult_tickets == 1
     assert window._model.guests[0].child_tickets == 0
 
