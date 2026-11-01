@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import csv
 import logging
+import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -34,6 +35,8 @@ from chugui.models import (
 from chugui.parsing.amount import parse_amount
 from chugui.parsing.names import format_display_name, split_names, strip_person_names
 from chugui.parsing.relations import guess_relation
+from chugui.parsing.statement import parse_statement_rows
+from chugui.parsing.text_parser import parse_line
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +44,7 @@ SUPPORTED_SUFFIXES: tuple[str, ...] = (".xlsx", ".xlsm", ".csv")
 
 # 헤더 후보 키워드. 은행 거래내역 컬럼명까지 포함한다.
 _NAME_KEYS = ("성명", "이름", "입금자", "보낸분", "보내는분", "거래자", "성함", "고객명", "적요")
-_AMOUNT_KEYS = ("금액", "축의금", "입금액", "입금", "받은금액", "거래금액", "원화금액")
+_AMOUNT_KEYS = ("금액", "축의금", "축의", "부조", "입금액", "입금", "받은금액", "거래금액", "원화금액")
 _BELONG_KEYS = ("소속", "관계", "그룹", "분류", "구분")
 _NOTE_KEYS = ("비고", "특이사항", "메모", "내용", "기재내용", "적요")
 _TICKET_ADULT_KEYS = ("식권", "대인", "성인")
@@ -175,15 +178,39 @@ def _cell(row: Sequence[str], index: int | None) -> str:
 
 
 def _int_cell(row: Sequence[str], index: int | None) -> int:
-    text = _cell(row, index)
-    digits = "".join(ch for ch in text if ch.isdigit())
-    return int(digits) if digits else 0
+    """식권 수 칸. 숫자만 이어붙이면 '2.0' 이 20장이 된다. 첫 번째 수만 읽는다."""
+    match = re.search(r"\d+", _cell(row, index))
+    return int(match.group()) if match else 0
+
+
+def _has_header(rows: Sequence[Sequence[str]]) -> bool:
+    return any(_score_header_row(row) >= 2 for row in rows[:_MAX_HEADER_SCAN])
+
+
+def _parse_headerless(rows: Sequence[Sequence[str]], source: Source) -> list[Guest]:
+    """제목 줄이 없는 표. 첫 줄을 제목으로 삼으면 첫 하객이 사라지고 나머지는 금액을 못 읽는다.
+
+    각 줄을 탭으로 이어 붙여 텍스트 파서의 표 읽기에 맡긴다.
+    """
+    guests: list[Guest] = []
+    for number, row in enumerate(rows, start=1):
+        guest = parse_line("\t".join(str(cell) for cell in row if str(cell).strip()), number)
+        if guest is not None:
+            guest.source = source
+            guests.append(guest)
+    return renumber(guests)
 
 
 def parse_rows(rows: Sequence[Sequence[str]], source: Source = Source.EXCEL) -> list[Guest]:
     """이미 읽어들인 행 목록을 Guest로 변환한다(테스트 진입점)."""
     if not rows:
         return []
+
+    statement = parse_statement_rows(rows)
+    if statement is not None:
+        return statement.guests
+    if not _has_header(rows):
+        return _parse_headerless(rows, source)
 
     header_index = _find_header_row(rows)
     headers = list(rows[header_index])
@@ -330,6 +357,8 @@ class SpreadsheetResult:
     guests: list[Guest]
     #: 이 프로그램이 내보낸 명단인가. 그렇다면 병합이 아니라 교체해야 한다.
     is_export: bool
+    #: 은행 거래내역에서 돈이 나간 줄이라 건너뛴 건수.
+    skipped_outflows: int = 0
 
 
 def read_spreadsheet(file_path: str | Path, source: Source = Source.EXCEL) -> SpreadsheetResult:
@@ -342,6 +371,13 @@ def read_spreadsheet(file_path: str | Path, source: Source = Source.EXCEL) -> Sp
     if exported is not None:
         logger.info("내보낸 명단 다시 불러오기: %s (%d건)", path.name, len(exported))
         return SpreadsheetResult(exported, is_export=True)
+    statement = parse_statement_rows(rows)
+    if statement is not None:
+        logger.info(
+            "거래내역 파싱 완료: %s (입금 %d건, 출금 %d건 제외)",
+            path.name, len(statement.guests), statement.skipped_outflows,
+        )
+        return SpreadsheetResult(statement.guests, False, statement.skipped_outflows)
     guests = parse_rows(rows, source=source)
     logger.info("스프레드시트 파싱 완료: %s (%d건)", path.name, len(guests))
     return SpreadsheetResult(guests, is_export=False)

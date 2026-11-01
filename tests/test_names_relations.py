@@ -84,9 +84,9 @@ class TestMultipleNames:
 
 class TestAliases:
     def test_paren_alias_is_captured(self):
-        names, aliases, found = extract_names("25 김성도(조성도) 50000 OO교회")
-        assert (names, found) == (["김성도"], True)
-        assert aliases == ["조성도"]
+        names, aliases, found = extract_names("25 김가온(조가온) 50000 OO교회")
+        assert (names, found) == (["김가온"], True)
+        assert aliases == ["조가온"]
 
 
 class TestFallback:

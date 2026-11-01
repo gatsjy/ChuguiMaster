@@ -414,7 +414,7 @@ class TestLayoutRobustness:
 
         배너가 숨은 상태만 재다가, 배너 + 입력 가이드 줄이 겹친 경우 안내 글자가 다시 겹쳤다.
         """
-        window._model.set_guests(parse_text("홍길동 10만원\n무명 오만원"))
+        window._model.set_guests(parse_text("홍길동 10만원\n무명 금액미정"))
         qt_app.processEvents()
         assert window._review_banner.isVisible()
         required = (

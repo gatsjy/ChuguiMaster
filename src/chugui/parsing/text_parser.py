@@ -20,6 +20,7 @@ from chugui.parsing.names import extract_names, format_display_name, strip_perso
 from chugui.parsing.relations import guess_relation
 from chugui.parsing.tickets import adult_tickets as parse_adult_tickets
 from chugui.parsing.tickets import child_tickets as parse_child_tickets
+from chugui.parsing.tickets import stated_headcount
 
 _ABSENT_RE = re.compile(r"불참|미참|못\s*오|못\s*와|못\s*참|결석")
 _PRESENT_RE = re.compile(r"참석|참여|오심|왔음|방문")
@@ -72,7 +73,10 @@ def parse_line(line: str, line_number: int = 1) -> Guest | None:
         child_tickets = stated_child or 0
     else:
         # 식권 수를 안 적었으면 사람 수만큼 발급된 것으로 본다(부부 = 2장).
-        adult_tickets = stated_adult if stated_adult is not None else max(1, len(names))
+        if stated_adult is not None:
+            adult_tickets = stated_adult
+        else:
+            adult_tickets = stated_headcount(text, len(names)) or max(1, len(names))
         child_tickets = stated_child or 0
 
     guest = Guest(

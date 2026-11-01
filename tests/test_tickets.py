@@ -109,9 +109,9 @@ class TestRealTicketNotationStillWorks:
         "line",
         [
             "김선배 50만 식권3 소인1",
-            "김재경(조외순) 50만 식권3 소인1",
-            "이상민 5만 (주)넥스트로 식권3 소인1",
-            "이상민\t50,000\t(주)넥스트로 식권3 소인1",
+            "김다온(조나래) 50만 식권3 소인1",
+            "이도현 5만 (주)누리테크 식권3 소인1",
+            "이도현\t50,000\t(주)누리테크 식권3 소인1",
             "홍길동 10만 총무 식권3 소인1",
             "홍길동 10만 총동문회 식권3 소인1",
             "김부장 20만 식권3 (메모) 소인1",
@@ -157,7 +157,7 @@ class TestTabSeparatedList:
         "김가족,김친지\t300,000\t이모\n"
         "박지성\t100,000\t천안\n"
         "이영희\t50,000\t온양5동\n"
-        "최동욱\t100,000\t세교4리\n"
+        "최동욱\t100,000\t새내4리\n"
         "강수진\t1,000,000\t서울이모\n"
         "임재현\t2,000,000\t친척\n"
         "조은지\t70,000\tOO교회 사랑부\n"
@@ -173,7 +173,7 @@ class TestTabSeparatedList:
         assert sum(g.amount for g in parse_text(self.RAW)) == 3_870_000
 
     def test_place_names_are_not_read_as_units(self):
-        """'천안'의 '천', '온양5동'의 5, '세교4리'의 4가 금액에 섞이면 안 된다."""
+        """'천안'의 '천', '온양5동'의 5, '새내4리'의 4가 금액에 섞이면 안 된다."""
         by_name = {g.name: g for g in parse_text(self.RAW)}
         assert by_name["박지성"].amount == 100_000
         assert by_name["이영희"].amount == 50_000

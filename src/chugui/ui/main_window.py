@@ -860,7 +860,10 @@ class MainWindow(QMainWindow):
         result = merge_guests(self._model.guests, incoming, skip_exact_duplicates=False)
         self._model.set_guests(result.guests)
 
-        self._offer_undo(f"{path.name} · {result.summary}")
+        message = f"{path.name} · {result.summary}"
+        if result_file.skipped_outflows:
+            message += f" · 출금 {result_file.skipped_outflows}건 제외"
+        self._offer_undo(message)
         if result.duplicate_count:
             self._chk_review.setChecked(True)
 
@@ -928,8 +931,8 @@ class MainWindow(QMainWindow):
     def _apply_relation_map(self, guests: list[Guest]) -> list[Guest]:
         """사용자가 가르친 소속을 새로 읽은 하객에 반영한다.
 
-        키워드 추정은 `보건소` `교회` 같은 일반명사만 안다. `현대모비스` 나
-        `일구칠구`(부모님 모임 이름)처럼 사용자만 아는 고유명사는 사전으로
+        키워드 추정은 `보건소` `교회` 같은 일반명사만 안다. `한빛모터스` 나
+        `솔내음`(부모님 모임 이름)처럼 사용자만 아는 고유명사는 사전으로
         덮어쓰는 수밖에 없다. 직접 가르친 값이므로 추정보다 우선한다.
         """
         if len(self._relation_map):
@@ -941,9 +944,9 @@ class MainWindow(QMainWindow):
     ) -> tuple[Callable[[], None], Callable[[], None]] | None:
         """관계 편집에 딸린 '사전 학습' 을 되돌리기 명령에 실어 보낸다.
 
-        학습이 명령 밖에 있으면, 드롭다운을 잘못 눌러 `현대모비스 → 종교` 를 고르고
+        학습이 명령 밖에 있으면, 드롭다운을 잘못 눌러 `한빛모터스 → 종교` 를 고르고
         바로 Ctrl+Z 해도 표만 돌아가고 사전에는 종교가 남는다. 다음 명단에서
-        현대모비스 23건이 **조용히** 종교로 분류된다.
+        한빛모터스 23건이 **조용히** 종교로 분류된다.
         """
         if column is not Column.RELATION:
             return None

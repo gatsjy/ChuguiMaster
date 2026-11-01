@@ -43,7 +43,7 @@ _COUNT = r"(\d{1,2})(?!\d|,\d)"
 
 _EXPLICIT_ADULT_WORDS = r"(?:대인|성인|어른|대)"
 _GENERIC_TICKET_WORDS = r"(?:식권|식대)"
-_CHILD_WORDS = r"(?:소인|어린이|아동|아이|유아|애기|자녀|애|소)"
+_CHILD_WORDS = r"(?:소인|어린이|아동|아이|아기|유아|애기|자녀|애|소)"
 _SUFFIX = r"\s*(?:명|장|개)?"
 
 ADULT_TICKET_RE = re.compile(
@@ -83,7 +83,7 @@ def _is_total_notation(text: str, generic: re.Match[str], child: re.Match[str]) 
     """'식권 N' 이 대인 수가 아니라 **총합**(소인 포함)으로 쓰였는가.
 
     판단은 **표기 바로 옆**에서만 한다. 예전에는 줄 어딘가에 '(' 나 '총' 이 있기만 해도
-    총합으로 봤다. 그래서 같은 '식권3 소인1' 이 별칭 '김재경(조외순)', 소속 '(주)넥스트로',
+    총합으로 봤다. 그래서 같은 '식권3 소인1' 이 별칭 '김다온(조나래)', 소속 '(주)누리테크',
     '총무', '총동문회' 가 붙으면 대인 3장이 2장으로 바뀌어 식대가 조용히 덜 잡혔다.
 
     * '총 식권 3 소인 1' · '총식권3 소인1' — '총' 이 식권 바로 앞에 붙어 있다.
@@ -120,6 +120,34 @@ def parse_ticket_counts(text: str) -> tuple[int | None, int | None]:
         adult = None
 
     return adult, child
+
+
+#: '외 2명' 은 적힌 사람 말고 2명 더.
+_OTHERS_RE = re.compile(r"외\s*(\d{1,2})\s*(?:명|인)(?![가-힣])")
+#: '3명' · '2인'. 앞에 한글이 붙으면(소인1명 · 대인2명) 식권 표기라 여기서 세지 않는다.
+_HEADCOUNT_RE = re.compile(r"(?<![가-힣\d,.])(\d{1,2})\s*(?:명|인)(?![가-힣])")
+_COUPLE_RE = re.compile(r"(?<![가-힣])(?:부부|내외)(?![가-힣])")
+
+
+def stated_headcount(text: str, named: int) -> int | None:
+    """줄에 적힌 인원. 식권을 안 적었을 때 이만큼 발급된 것으로 본다. 없으면 ``None``.
+
+    '김철수 부부 20만원' · '홍길동 10만원 3명' · '홍길동 외 2명 10만원' 은 사람 수를
+    분명히 적은 것인데, 예전에는 이름이 하나라는 이유로 식권 1장으로 쳐서 식대가 조용히 덜 잡혔다.
+
+    Args:
+        named: 줄에서 이름으로 읽은 사람 수.
+    """
+    cleaned = strip_ticket_tokens(text)
+    others = _OTHERS_RE.search(cleaned)
+    if others:
+        return max(1, named) + int(others.group(1))
+    count = _HEADCOUNT_RE.search(cleaned)
+    if count and int(count.group(1)) > 0:
+        return int(count.group(1))
+    if _COUPLE_RE.search(cleaned):
+        return max(2, named)
+    return None
 
 
 def adult_tickets(text: str) -> int | None:

@@ -110,7 +110,7 @@ class TestSessionRepository:
         original = Guest(
             name="김가족 & 김친지",
             names=["김가족", "김친지"],
-            aliases=["조성도"],
+            aliases=["조가온"],
             amount=300_000,
             relation=Relation.FAMILY,
             attendance=Attendance.ABSENT,

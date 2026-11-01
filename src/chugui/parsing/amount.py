@@ -36,7 +36,11 @@ _UNIT_RANK: dict[str, int] = {unit: rank for rank, unit in enumerate(_UNITS)}
 # 단위 대체 표기는 정규식 교대에서 반드시 긴 것부터 와야 한다("천만"이 "천"보다 앞).
 # 단위 뒤에 일반 한글 단어가 이어지면(예: "천안") 단위가 아닌 단어의 일부로 판단한다.
 # 소수점도 숫자의 일부로 읽는다. 예전에는 '1.5만' 이 '1' 과 '5만' 으로 쪼개져 50,000원이 됐다.
-_NUM_UNIT_RE = re.compile(r"(\d[\d,]*(?:\.\d+)*)\s*(억|천만|백만|십만|만|천)?(원)?(?![가-힣A-Za-z])")
+# '10만원입니다' 처럼 '원' 뒤에 말이 이어져도 금액이다.
+_NUM_UNIT_RE = re.compile(
+    r"(\d[\d,]*(?:\.\d+)*)\s*(억|천만|백만|십만|만|천)?(원)?"
+    r"(?:(?<=원)(?=입니다|이요|요|임|정)|(?![가-힣A-Za-z]))"
+)
 #: '100.000원' 처럼 점을 천 단위 구분자로 쓴 표기.
 _DOT_THOUSANDS_RE = re.compile(r"\d{1,3}(?:\.\d{3})+")
 
@@ -49,12 +53,23 @@ _DATE_RE = re.compile(r"\d{2,4}\s*[-./년]\s*\d{1,2}\s*[-./월]\s*\d{1,2}\s*일?
 _TIME_RE = re.compile(r"\d{1,2}\s*:\s*\d{2}(\s*:\s*\d{2})?")
 _PHONE_RE = re.compile(r"01[016-9][-\s.]?\d{3,4}[-\s.]?\d{4}")
 _ACCOUNT_RE = re.compile(r"\d{2,6}[-]\d{2,6}[-]\d{2,7}")
+#: 입금 알림을 붙여넣으면 잔액이 축의금보다 커서 금액으로 뽑혔다.
+_BALANCE_RE = re.compile(r"(?:잔액|잔고|누적)\s*[:：]?\s*\d[\d,]*\s*원?")
+
+#: 숫자 없이 한글로 쓴 금액. 오만원 · 십오만원 · 이백만원 · 만원.
+#: '원' 까지 있어야 인정한다. '이천' '오만' 은 지명이나 이름일 수 있다.
+_HANGUL_DIGITS = {"일": 1, "이": 2, "삼": 3, "사": 4, "오": 5, "육": 6, "칠": 7, "팔": 8, "구": 9}
+_HANGUL_SMALL_UNITS = {"십": 10, "백": 100, "천": 1_000}
+_HANGUL_BIG_UNITS = {"만": 10_000, "억": 100_000_000}
+_HANGUL_AMOUNT_RE = re.compile(
+    r"(?<![가-힣])([일이삼사오육칠팔구십백천만억]+)\s*원(?=입니다|이요|요|임|정|[^가-힣]|$)"
+)
 
 
 def strip_non_amount_numbers(text: str) -> str:
     """금액으로 오인될 수 있는 숫자 표현을 미리 제거한다."""
     cleaned = str(text)
-    for pattern in (_ACCOUNT_RE, _PHONE_RE, _DATE_RE, _TIME_RE):
+    for pattern in (_BALANCE_RE, _ACCOUNT_RE, _PHONE_RE, _DATE_RE, _TIME_RE):
         cleaned = pattern.sub(" ", cleaned)
     cleaned = strip_ticket_tokens(cleaned)
     cleaned = _LEADING_INDEX_RE.sub(" ", cleaned)
@@ -104,8 +119,9 @@ def iter_amount_candidates(text: str) -> Iterator[int]:
         number = _to_number(digits, None)
         if number is None:
             continue
-        if accumulator and 0 < number < last_multiplier:
-            accumulator += number  # "10만 5000원"
+        # '10만 5000원' 은 한 금액이다. '10만 아기1' 의 1 처럼 단위 없는 작은 수는 붙이지 않는다.
+        if accumulator and 0 < number < last_multiplier and (won == "원" or number >= 1_000):
+            accumulator += number
             continue
         if accumulator:
             yield accumulator
@@ -119,6 +135,40 @@ def iter_amount_candidates(text: str) -> Iterator[int]:
         yield accumulator
 
 
+def _hangul_number(text: str) -> int:
+    """오만 → 50000, 십오만 → 150000, 이백만 → 2000000. 읽을 수 없으면 0."""
+    total = 0
+    section = 0
+    digit = 0
+    for character in text:
+        if character in _HANGUL_DIGITS:
+            if digit:
+                return 0  # '오삼만' 같은 것은 수가 아니다.
+            digit = _HANGUL_DIGITS[character]
+        elif character in _HANGUL_SMALL_UNITS:
+            section += (digit or 1) * _HANGUL_SMALL_UNITS[character]
+            digit = 0
+        else:
+            total += (section + digit or 1) * _HANGUL_BIG_UNITS[character]
+            section = 0
+            digit = 0
+    return total + section + digit
+
+
+def hangul_amount(text: str) -> int:
+    """글자로 쓴 금액. 1,000원 미만은 금액으로 보지 않는다(숫자와 같은 기준)."""
+    for match in _HANGUL_AMOUNT_RE.finditer(str(text or "")):
+        value = _hangul_number(match.group(1))
+        if value >= 1_000:
+            return value
+    return 0
+
+
+def is_hangul_amount(token: str) -> bool:
+    """이 토큰 전체가 글자로 쓴 금액인가. 이름 후보에서 뺄 때 쓴다."""
+    return bool(_HANGUL_AMOUNT_RE.fullmatch(str(token or ""))) and hangul_amount(token) > 0
+
+
 def extract_amount(text: str) -> tuple[int, list[int]]:
     """자유 텍스트 한 줄에서 금액을 뽑는다.
 
@@ -129,7 +179,8 @@ def extract_amount(text: str) -> tuple[int, list[int]]:
     cleaned = strip_non_amount_numbers(text)
     candidates = [value for value in iter_amount_candidates(cleaned) if value > 0]
     if not candidates:
-        return 0, []
+        written = hangul_amount(cleaned)
+        return (written, [written]) if written else (0, [])
     return max(candidates), candidates
 
 

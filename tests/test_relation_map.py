@@ -2,9 +2,9 @@
 
 실제 225행 명단에서 나온 문제다. 관계 추정은 `보건소` `교회` 같은 일반명사만 안다.
 
-    현대모비스   23건  회사명
-    넥스트로     17건  회사명
-    일구칠구     14건  부모님 모임 이름
+    한빛모터스   23건  회사명
+    누리테크     17건  회사명
+    솔내음     14건  부모님 모임 이름
     속셈말        3건  아버지 고향 마을 이름
 
 앞의 둘은 사전을 늘리면 잡히는 척이라도 하지만, 뒤의 둘은 사용자만 아는 사실이라
@@ -35,11 +35,11 @@ class TestNormalizeBelong:
     @pytest.mark.parametrize(
         ("left", "right"),
         [
-            ("넥스트로(주)", "(주)넥스트로"),
-            ("넥스트로(주)", "주식회사 넥스트로"),
-            ("현대모비스 충청부품사업소", "현대모비스충청부품사업소"),
-            ("여명교회 사랑부", "여명교회사랑부"),
-            ("일구칠구", " 일구칠구 "),
+            ("누리테크(주)", "(주)누리테크"),
+            ("누리테크(주)", "주식회사 누리테크"),
+            ("한빛모터스 충청부품사업소", "한빛모터스충청부품사업소"),
+            ("새벽교회 사랑부", "새벽교회사랑부"),
+            ("솔내음", " 솔내음 "),
             ("아산시보건소", "아산시 보건소"),
         ],
     )
@@ -49,8 +49,8 @@ class TestNormalizeBelong:
     @pytest.mark.parametrize(
         ("left", "right"),
         [
-            ("현대모비스", "넥스트로"),
-            ("일구칠구", "속셈말"),
+            ("한빛모터스", "누리테크"),
+            ("솔내음", "속셈말"),
             ("둔포보건지소", "인주보건소"),
         ],
     )
@@ -65,18 +65,18 @@ class TestNormalizeBelong:
 class TestLearn:
     def test_learn_and_get(self):
         mapping = RelationMap()
-        assert mapping.learn("현대모비스", Relation.WORK) is True
-        assert mapping.get("현대모비스") is Relation.WORK
+        assert mapping.learn("한빛모터스", Relation.WORK) is True
+        assert mapping.get("한빛모터스") is Relation.WORK
 
     def test_learn_matches_variant_spelling(self):
         mapping = RelationMap()
-        mapping.learn("넥스트로(주)", Relation.WORK)
-        assert mapping.get("(주)넥스트로") is Relation.WORK
+        mapping.learn("누리테크(주)", Relation.WORK)
+        assert mapping.get("(주)누리테크") is Relation.WORK
 
     def test_relearning_same_value_is_noop(self):
         mapping = RelationMap()
-        mapping.learn("일구칠구", Relation.OTHER)
-        assert mapping.learn("일구칠구", Relation.OTHER) is False
+        mapping.learn("솔내음", Relation.OTHER)
+        assert mapping.learn("솔내음", Relation.OTHER) is False
 
     def test_relearning_changes_value(self):
         mapping = RelationMap()
@@ -102,32 +102,32 @@ class TestLearn:
 
     def test_contains(self):
         mapping = RelationMap()
-        mapping.learn("현대모비스", Relation.WORK)
-        assert "현대모비스 " in mapping
-        assert "넥스트로" not in mapping
+        mapping.learn("한빛모터스", Relation.WORK)
+        assert "한빛모터스 " in mapping
+        assert "누리테크" not in mapping
 
 
 class TestApplyTo:
     def test_learned_belong_overrides_keyword_guess(self):
         """사용자가 직접 가르친 값이 추정보다 우선한다."""
-        mapping = RelationMap({"일구칠구": Relation.FAMILY.value})
-        guests = [guest("조문행", "일구칠구"), guest("이면구", "일구칠구")]
+        mapping = RelationMap({"솔내음": Relation.FAMILY.value})
+        guests = [guest("조문행", "솔내음"), guest("이면구", "솔내음")]
         assert mapping.apply_to(guests) == 2
         assert all(g.relation is Relation.FAMILY for g in guests)
 
     def test_unknown_belong_left_alone(self):
-        mapping = RelationMap({"일구칠구": Relation.FAMILY.value})
+        mapping = RelationMap({"솔내음": Relation.FAMILY.value})
         guests = [guest("이해명", "아산시보건소", Relation.WORK)]
         assert mapping.apply_to(guests) == 0
         assert guests[0].relation is Relation.WORK
 
     def test_already_correct_is_not_counted(self):
-        mapping = RelationMap({"현대모비스": Relation.WORK.value})
-        guests = [guest("남천석", "현대모비스", Relation.WORK)]
+        mapping = RelationMap({"한빛모터스": Relation.WORK.value})
+        guests = [guest("남천석", "한빛모터스", Relation.WORK)]
         assert mapping.apply_to(guests) == 0
 
     def test_empty_belong_untouched(self):
-        mapping = RelationMap({"현대모비스": Relation.WORK.value})
+        mapping = RelationMap({"한빛모터스": Relation.WORK.value})
         guests = [guest("강환민", "")]
         assert mapping.apply_to(guests) == 0
         assert guests[0].relation is Relation.OTHER
@@ -135,12 +135,12 @@ class TestApplyTo:
     def test_applies_to_parsed_list(self):
         """실제 명단 형태(탭 3열)에 그대로 걸린다."""
         guests = parse_text(
-            "남천석\t100,000\t현대모비스\n조문행\t100,000\t일구칠구\n이해명\t100,000\t아산시보건소"
+            "남천석\t100,000\t한빛모터스\n조문행\t100,000\t솔내음\n이해명\t100,000\t아산시보건소"
         )
         assert [g.relation for g in guests] == [Relation.OTHER, Relation.OTHER, Relation.WORK]
 
         mapping = RelationMap(
-            {"현대모비스": Relation.WORK.value, "일구칠구": Relation.FAMILY.value}
+            {"한빛모터스": Relation.WORK.value, "솔내음": Relation.FAMILY.value}
         )
         assert mapping.apply_to(guests) == 2
         assert [g.relation for g in guests] == [Relation.WORK, Relation.FAMILY, Relation.WORK]
@@ -149,12 +149,12 @@ class TestApplyTo:
 class TestSharingBelong:
     def test_finds_same_place_despite_spelling(self):
         guests = [
-            guest("손해신", "넥스트로(주)"),
-            guest("이윤기", "(주)넥스트로"),
-            guest("정지만", "넥스트로"),
-            guest("남천석", "현대모비스"),
+            guest("손해신", "누리테크(주)"),
+            guest("이윤기", "(주)누리테크"),
+            guest("정지만", "누리테크"),
+            guest("남천석", "한빛모터스"),
         ]
-        assert len(guests_sharing_belong(guests, "넥스트로")) == 3
+        assert len(guests_sharing_belong(guests, "누리테크")) == 3
 
     def test_empty_belong_matches_nothing(self):
         """소속 없는 39건이 서로 '같은 소속'으로 묶이면 안 된다."""
@@ -166,20 +166,20 @@ class TestRepository:
     def test_round_trip(self):
         repo = RelationMapRepository()
         mapping = repo.load()
-        mapping.learn("현대모비스 충청부품사업소", Relation.WORK)
-        mapping.learn("일구칠구", Relation.FAMILY)
+        mapping.learn("한빛모터스 충청부품사업소", Relation.WORK)
+        mapping.learn("솔내음", Relation.FAMILY)
         assert repo.save(mapping) is True
 
         reloaded = repo.load()
         assert len(reloaded) == 2
-        assert reloaded.get("현대모비스충청부품사업소") is Relation.WORK
-        assert reloaded.get("일구칠구") is Relation.FAMILY
+        assert reloaded.get("한빛모터스충청부품사업소") is Relation.WORK
+        assert reloaded.get("솔내음") is Relation.FAMILY
 
     def test_missing_file_gives_empty_map(self):
         assert len(RelationMapRepository().load()) == 0
 
     @pytest.mark.parametrize(
-        "payload", ["[]", "null", '"문자열"', "깨진 json", '{"일구칠구": 42}']
+        "payload", ["[]", "null", '"문자열"', "깨진 json", '{"솔내음": 42}']
     )
     def test_garbage_never_raises(self, payload):
         repo = RelationMapRepository()
@@ -224,16 +224,16 @@ class TestWindowIntegration:
         )
 
     def test_editing_relation_learns_the_belong(self, window, qt_app):
-        window._model.set_guests(parse_text("남천석\t100,000\t현대모비스"))
+        window._model.set_guests(parse_text("남천석\t100,000\t한빛모터스"))
         self._set_relation(window, 0, Relation.WORK)
         qt_app.processEvents()
-        assert window._relation_map.get("현대모비스") is Relation.WORK
+        assert window._relation_map.get("한빛모터스") is Relation.WORK
 
     def test_learned_belong_persists_to_disk(self, window, qt_app):
-        window._model.set_guests(parse_text("남천석\t100,000\t현대모비스"))
+        window._model.set_guests(parse_text("남천석\t100,000\t한빛모터스"))
         self._set_relation(window, 0, Relation.WORK)
         qt_app.processEvents()
-        assert RelationMapRepository().load().get("현대모비스") is Relation.WORK
+        assert RelationMapRepository().load().get("한빛모터스") is Relation.WORK
 
     def test_no_belong_learns_nothing(self, window, qt_app):
         window._model.set_guests(parse_text("강환민\t100,000"))
@@ -244,9 +244,9 @@ class TestWindowIntegration:
     def test_bulk_offer_appears_for_shared_belong(self, window, qt_app):
         window._model.set_guests(
             parse_text(
-                "남천석\t100,000\t현대모비스\n"
-                "유정곤\t200,000\t현대모비스\n"
-                "채창균\t50,000\t현대모비스"
+                "남천석\t100,000\t한빛모터스\n"
+                "유정곤\t200,000\t한빛모터스\n"
+                "채창균\t50,000\t한빛모터스"
             )
         )
         self._set_relation(window, 0, Relation.WORK)
@@ -255,7 +255,7 @@ class TestWindowIntegration:
         assert window._toast._action.text() == "2건 변경"
 
     def test_bulk_offer_hidden_when_alone(self, window, qt_app):
-        window._model.set_guests(parse_text("남천석\t100,000\t현대모비스"))
+        window._model.set_guests(parse_text("남천석\t100,000\t한빛모터스"))
         self._set_relation(window, 0, Relation.WORK)
         qt_app.processEvents()
         assert not window._toast._action.isVisible()
@@ -263,9 +263,9 @@ class TestWindowIntegration:
     def test_bulk_change_applies_to_all(self, window, qt_app):
         window._model.set_guests(
             parse_text(
-                "조문행\t100,000\t일구칠구\n"
-                "이면구\t100,000\t일구칠구\n"
-                "김한기\t50,000\t일구칠구"
+                "조문행\t100,000\t솔내음\n"
+                "이면구\t100,000\t솔내음\n"
+                "김한기\t50,000\t솔내음"
             )
         )
         self._set_relation(window, 0, Relation.FAMILY)
@@ -278,9 +278,9 @@ class TestWindowIntegration:
         """줄마다 명령을 쌓으면 Ctrl+Z 를 수십 번 눌러야 한다. 매크로로 묶는다."""
         window._model.set_guests(
             parse_text(
-                "조문행\t100,000\t일구칠구\n"
-                "이면구\t100,000\t일구칠구\n"
-                "김한기\t50,000\t일구칠구"
+                "조문행\t100,000\t솔내음\n"
+                "이면구\t100,000\t솔내음\n"
+                "김한기\t50,000\t솔내음"
             )
         )
         self._set_relation(window, 0, Relation.FAMILY)
@@ -300,9 +300,9 @@ class TestWindowIntegration:
         """일괄 변경이 줄마다 relationEdited 를 다시 보낸다. 되묻지 않아야 한다."""
         window._model.set_guests(
             parse_text(
-                "조문행\t100,000\t일구칠구\n"
-                "이면구\t100,000\t일구칠구\n"
-                "김한기\t50,000\t일구칠구"
+                "조문행\t100,000\t솔내음\n"
+                "이면구\t100,000\t솔내음\n"
+                "김한기\t50,000\t솔내음"
             )
         )
         self._set_relation(window, 0, Relation.FAMILY)
@@ -313,8 +313,8 @@ class TestWindowIntegration:
 
     def test_learned_map_applies_to_next_parse(self, window, qt_app):
         """다음 명단부터는 가르치지 않아도 알아서 분류된다."""
-        window._relation_map.learn("일구칠구", Relation.FAMILY)
-        window._input.setPlainText("새하객\t100,000\t일구칠구")
+        window._relation_map.learn("솔내음", Relation.FAMILY)
+        window._input.setPlainText("새하객\t100,000\t솔내음")
         window._handle_parse()
         qt_app.processEvents()
         assert window._model.guests[0].relation is Relation.FAMILY
@@ -323,49 +323,49 @@ class TestWindowIntegration:
 
     def test_undo_forgets_a_belong_that_was_unknown(self, window, qt_app):
         """오클릭 → Ctrl+Z 했는데 사전에 남으면, 다음 명단 23건이 조용히 틀린다."""
-        window._model.set_guests(parse_text("남천석\t100,000\t현대모비스"))
+        window._model.set_guests(parse_text("남천석\t100,000\t한빛모터스"))
         self._set_relation(window, 0, Relation.FAITH)  # 드롭다운 오클릭
         qt_app.processEvents()
-        assert window._relation_map.get("현대모비스") is Relation.FAITH
+        assert window._relation_map.get("한빛모터스") is Relation.FAITH
 
         window._undo_stack.undo()
         qt_app.processEvents()
         assert window._model.guests[0].relation is Relation.OTHER
-        assert window._relation_map.get("현대모비스") is None
+        assert window._relation_map.get("한빛모터스") is None
 
     def test_undo_restores_the_previously_learned_value(self, window, qt_app):
         """이미 알던 소속이면 잊는 게 아니라 그 값으로 돌아가야 한다."""
-        window._relation_map.learn("현대모비스", Relation.WORK)
-        window._model.set_guests(parse_text("남천석\t100,000\t현대모비스"))
+        window._relation_map.learn("한빛모터스", Relation.WORK)
+        window._model.set_guests(parse_text("남천석\t100,000\t한빛모터스"))
         self._set_relation(window, 0, Relation.FAITH)
         qt_app.processEvents()
 
         window._undo_stack.undo()
         qt_app.processEvents()
-        assert window._relation_map.get("현대모비스") is Relation.WORK
+        assert window._relation_map.get("한빛모터스") is Relation.WORK
 
     def test_undo_is_persisted(self, window, qt_app):
         """되돌린 사전이 디스크에도 반영돼야 재시작 후 다시 틀리지 않는다."""
-        window._model.set_guests(parse_text("남천석\t100,000\t현대모비스"))
+        window._model.set_guests(parse_text("남천석\t100,000\t한빛모터스"))
         self._set_relation(window, 0, Relation.FAITH)
         window._undo_stack.undo()
         qt_app.processEvents()
-        assert RelationMapRepository().load().get("현대모비스") is None
+        assert RelationMapRepository().load().get("한빛모터스") is None
 
     def test_redo_teaches_again(self, window, qt_app):
-        window._model.set_guests(parse_text("남천석\t100,000\t현대모비스"))
+        window._model.set_guests(parse_text("남천석\t100,000\t한빛모터스"))
         self._set_relation(window, 0, Relation.WORK)
         window._undo_stack.undo()
         window._undo_stack.redo()
         qt_app.processEvents()
-        assert window._relation_map.get("현대모비스") is Relation.WORK
+        assert window._relation_map.get("한빛모터스") is Relation.WORK
 
     def test_undoing_bulk_then_first_edit_unwinds_fully(self, window, qt_app):
         window._model.set_guests(
             parse_text(
-                "조문행\t100,000\t일구칠구\n"
-                "이면구\t100,000\t일구칠구\n"
-                "김한기\t50,000\t일구칠구"
+                "조문행\t100,000\t솔내음\n"
+                "이면구\t100,000\t솔내음\n"
+                "김한기\t50,000\t솔내음"
             )
         )
         self._set_relation(window, 0, Relation.FAMILY)
@@ -374,11 +374,11 @@ class TestWindowIntegration:
         qt_app.processEvents()
 
         window._undo_stack.undo()  # 일괄 변경
-        assert window._relation_map.get("일구칠구") is Relation.FAMILY  # 첫 편집은 아직 살아 있다
+        assert window._relation_map.get("솔내음") is Relation.FAMILY  # 첫 편집은 아직 살아 있다
         window._undo_stack.undo()  # 첫 편집
         qt_app.processEvents()
         assert all(g.relation is Relation.OTHER for g in window._model.guests)
-        assert window._relation_map.get("일구칠구") is None
+        assert window._relation_map.get("솔내음") is None
 
     # ------------------------------------------- 알림이 떠 있는 사이 표가 바뀜
 
@@ -386,9 +386,9 @@ class TestWindowIntegration:
         """알림이 떠 있는 몇 초 사이 줄을 지우면 행 번호가 다른 사람을 가리킨다."""
         window._model.set_guests(
             parse_text(
-                "김가나\t100,000\t현대모비스\n"
-                "김다라\t100,000\t현대모비스\n"
-                "김마바\t100,000\t현대모비스\n"
+                "김가나\t100,000\t한빛모터스\n"
+                "김다라\t100,000\t한빛모터스\n"
+                "김마바\t100,000\t한빛모터스\n"
                 "김사아\t100,000\t다른곳"
             )
         )
@@ -407,9 +407,9 @@ class TestWindowIntegration:
         """사용자가 그 사이 손으로 고친 줄은 다시 건드리지 않는다(빈 되돌리기 항목도 없음)."""
         window._model.set_guests(
             parse_text(
-                "조문행\t100,000\t일구칠구\n"
-                "이면구\t100,000\t일구칠구\n"
-                "김한기\t50,000\t일구칠구"
+                "조문행\t100,000\t솔내음\n"
+                "이면구\t100,000\t솔내음\n"
+                "김한기\t50,000\t솔내음"
             )
         )
         self._set_relation(window, 0, Relation.FAMILY)

@@ -93,7 +93,7 @@ class TestNoSilentGuessing:
 
     def test_empty_and_garbage(self):
         assert extract_amount("")[0] == 0
-        assert extract_amount("이백만원")[0] == 0  # 한글 수사는 지원하지 않음(경고 대상)
+        assert extract_amount("이백만")[0] == 0  # '원' 없는 한글 수사는 이름 · 지명일 수 있어 읽지 않음
         assert extract_amount("홍길동 친척")[0] == 0
 
 

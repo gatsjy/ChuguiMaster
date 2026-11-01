@@ -69,6 +69,10 @@ def export_to_excel(
         )
         for column, value in enumerate(values, start=1):
             cell = sheet.cell(row=row_index, column=column, value=value)
+            if isinstance(value, str):
+                # '=' 로 시작하는 이름 · 메모를 수식으로 저장하지 않는다. 은행 보낸 사람 칸은
+                # 누구나 적을 수 있어, 내보낸 파일을 여는 순간 수식이 실행될 수 있다.
+                cell.data_type = "s"
             if column == 3:
                 cell.number_format = "#,##0"
             elif column in (1, 6, 7, 8, 9, 13):

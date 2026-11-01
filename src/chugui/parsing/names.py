@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import re
 
+from chugui.parsing.amount import is_hangul_amount
 from chugui.parsing.relations import all_keywords
 
 # 조직/장소를 뜻하는 2글자 이상 접미사만. 1글자 접미사는 오탐이 너무 크다.
@@ -37,7 +38,7 @@ _ORG_SUFFIXES: tuple[str, ...] = (
 _MARKER_WORDS: frozenset[str] = frozenset(
     {
         "불참", "미참석", "참석", "송금", "이체", "계좌", "계좌이체", "현금",
-        "봉투", "축의", "축의금", "부의", "화환", "합계", "총계", "소계", "비고",
+        "봉투", "축의", "축의금", "부의", "화환", "합계", "총계", "소계", "비고", "부부", "내외",
     }
 )
 _MARKER_RE = re.compile(r"^(식권|식대|대인|성인|소인|어린이|아동|아이)\s*\d*$")
@@ -58,6 +59,8 @@ _SPLIT_RE = re.compile(r"[,/·&＆]+")
 _TOKEN_SPLIT_RE = re.compile(r"[\s\[\]{}<>「」『』【】:;|~=]+|-(?=\d)")
 #: '김철수 , 이영희' 처럼 구분자 양옆에 띄어 쓴 공백을 붙여 한 토큰으로 만든다.
 _SPACED_SEP_RE = re.compile(r"\s*([,/·&＆])\s*")
+#: '홍길동10만원' 처럼 이름에 금액을 붙여 쓴 경우. '새내4리' 처럼 숫자가 낀 말은 건드리지 않는다.
+_GLUED_AMOUNT_RE = re.compile(r"([가-힣]{2,5})(?=\d[\d,]*(?:\.\d+)?\s*(?:억|천만|백만|십만|만|천|원)|\d{4,})")
 
 
 def _looks_like_org(token: str) -> bool:
@@ -71,6 +74,7 @@ def _is_marker(token: str) -> bool:
     return (
         token in _MARKER_WORDS
         or token in _RELATION_WORDS
+        or is_hangul_amount(token)
         or bool(_MARKER_RE.match(token) or _SIDE_RE.match(token))
     )
 
@@ -110,7 +114,7 @@ def extract_names(line: str, fallback: str = "") -> tuple[list[str], list[str], 
 
     aliases: list[str] = []
 
-    # 괄호 안 별칭을 먼저 떼어낸다: 김성도(조성도) → 김성도 + 별칭 조성도
+    # 괄호 안 별칭을 먼저 떼어낸다: 김가온(조가온) → 김가온 + 별칭 조가온
     def _capture_alias(match: re.Match[str]) -> str:
         inner = match.group(1).strip()
         for candidate in split_names(inner):
@@ -119,6 +123,7 @@ def extract_names(line: str, fallback: str = "") -> tuple[list[str], list[str], 
         return " "
 
     stripped = _SPACED_SEP_RE.sub(r"\1", _PAREN_RE.sub(_capture_alias, text))
+    stripped = _GLUED_AMOUNT_RE.sub(r"\1 ", stripped)
 
     for token in _TOKEN_SPLIT_RE.split(stripped):
         token = token.strip().strip(".:;")

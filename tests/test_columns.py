@@ -15,10 +15,10 @@ from chugui.parsing.text_parser import parse_line
 
 class TestSplitColumns:
     def test_tab_separated(self):
-        assert split_columns("유광호\t200,000\t토끼할머니") == ["유광호", "200,000", "토끼할머니"]
+        assert split_columns("강도윤\t200,000\t앞집할머니") == ["강도윤", "200,000", "앞집할머니"]
 
     def test_wide_space_separated(self):
-        assert split_columns("유광호   200,000   토끼할머니") == ["유광호", "200,000", "토끼할머니"]
+        assert split_columns("강도윤   200,000   앞집할머니") == ["강도윤", "200,000", "앞집할머니"]
 
     def test_trailing_empty_columns_dropped(self):
         """엑셀에서 복사하면 빈 열이 딸려 오는 일이 흔하다."""
@@ -43,16 +43,16 @@ class TestSplitColumns:
 
 class TestClassifyColumns:
     def test_name_amount_belong(self):
-        layout = classify_columns(["유광호", "200,000", "토끼할머니"])
-        assert layout.name_field == "유광호"
+        layout = classify_columns(["강도윤", "200,000", "앞집할머니"])
+        assert layout.name_field == "강도윤"
         assert layout.amount_field == "200,000"
-        assert layout.belong == "토끼할머니"
+        assert layout.belong == "앞집할머니"
 
     def test_amount_column_wins_on_digit_ratio(self):
         """소속에 숫자가 있어도 금액 열을 헷갈리지 않는다."""
-        layout = classify_columns(["한동수", "100,000", "세교4리"])
+        layout = classify_columns(["한서준", "100,000", "새내4리"])
         assert layout.amount_field == "100,000"
-        assert layout.belong == "세교4리"
+        assert layout.belong == "새내4리"
 
     def test_two_columns_only(self):
         layout = classify_columns(["홍길동", "100,000"])
@@ -71,10 +71,10 @@ class TestClassifyColumns:
 
 class TestParseLineWithColumns:
     def test_belong_is_captured(self):
-        guest = parse_line("유광호\t200,000\t토끼할머니")
-        assert guest.name == "유광호"
+        guest = parse_line("강도윤\t200,000\t앞집할머니")
+        assert guest.name == "강도윤"
         assert guest.amount == 200_000
-        assert guest.belong == "토끼할머니"
+        assert guest.belong == "앞집할머니"
 
     def test_relation_uses_belong(self):
         assert parse_line("김해수,김유지\t300,000\t천안이모").relation is Relation.FAMILY
@@ -87,7 +87,7 @@ class TestParseLineWithColumns:
 
     def test_amount_read_from_amount_column(self):
         """소속에 숫자가 섞여도 금액이 흔들리지 않는다."""
-        assert parse_line("한동수\t100,000\t세교4리").amount == 100_000
+        assert parse_line("한서준\t100,000\t새내4리").amount == 100_000
         assert parse_line("최기환\t100,000\t배방읍 12-3").amount == 100_000
 
     def test_title_after_name(self):
@@ -96,8 +96,8 @@ class TestParseLineWithColumns:
         assert guest.amount == 100_000
 
     def test_group_donor(self):
-        guest = parse_line("여명교회사랑부\t50,000\t여명교회사랑부")
-        assert guest.name == "여명교회사랑부"
+        guest = parse_line("새벽교회사랑부\t50,000\t새벽교회사랑부")
+        assert guest.name == "새벽교회사랑부"
         assert guest.relation is Relation.FAITH
 
     def test_free_form_still_works(self):
@@ -113,8 +113,8 @@ class TestRelationOverlapArtifact:
     @pytest.mark.parametrize(
         ("text", "expected"),
         [
-            ("여명교회사랑부", Relation.FAITH),
-            ("여명교회 사랑부", Relation.FAITH),
+            ("새벽교회사랑부", Relation.FAITH),
+            ("새벽교회 사랑부", Relation.FAITH),
             ("OO교회사무실", Relation.FAITH),
             # 겹치지 않는 매치는 종전대로 최장 일치 + tie-break
             ("대학병원 간호사", Relation.WORK),
